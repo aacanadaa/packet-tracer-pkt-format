@@ -206,5 +206,8 @@ replaced networks) opens in Packet Tracer showing the instructions window, the
 
 Because the container is byte-exact, you can also decode any `.pka`, tweak a
 subtree (e.g. a single `<POINTS>` value or an `<incorrectFeedback>`), and
-re-encode — no Packet Tracer needed.  `tools/activity.py` exposes helpers for the
+re-encode — no Packet Tracer needed.  The shipped **shape library** (`tools/device_shapes.json`, 14 models) lets
+`scoring.from_shapes(spec, shapes)` build trees for any covered model directly;
+models without a shape are skipped (not graded) rather than failing.  Extend it
+with `tools/harvest_library.py`.  `tools/activity.py` exposes helpers for the
 common fields; anything else is a direct string/XML edit of the decoded text.

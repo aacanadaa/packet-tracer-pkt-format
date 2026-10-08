@@ -89,7 +89,9 @@ Because encoding is byte-exact, the same codec **writes** `.pkt` files.  Tools i
   long running-config).  IOS config is written as `<RUNNINGCONFIG><LINE>…`
   commands and applied on load; PCs get `<IP>/<SUBNET>/<PORT_GATEWAY>`.  See
   [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
-* `tools/activity.py` + `tools/scoring.py` — author **activity files (`.pka`)** with the Activity Wizard: instructions (HTML), the **activity-wizard password**, permissions, feedback, the **initial / answer networks**, and the **scoring tree** (clone+retarget complete item nodes from a reference activity, with values derived from the answer).  See [`docs/ACTIVITY.md`](docs/ACTIVITY.md).
+* `tools/activity.py` + `tools/scoring.py` — author **activity files (`.pka`)** with the Activity Wizard: instructions (HTML), the **activity-wizard password**, permissions, feedback, the **initial / answer networks**, and the **scoring tree**.  See [`docs/ACTIVITY.md`](docs/ACTIVITY.md).
+* `tools/make_scored_lab.py` — **one-shot offline generator**: from a topology spec (`--spec`) it builds the initial + answer networks, derives scoring, and writes a scored `.pka`.  No Packet Tracer needed.  Ships with a library of **137 device templates, 75 module templates and 14 scoring shapes** (`tools/device_templates.json`, `tools/device_shapes.json`).
+* `tools/harvest_library.py` — (re)build those libraries from your own `.pkt`/`.pka` files to extend model/shape coverage.
 * `tools/lab_api.py` — a small library of the **verified authoring operations**
   (place device, power on/off, install a module, cable copper, write IOS
   `RUNNINGCONFIG`, set PC IP/DHCP).  Capability matrix + details in

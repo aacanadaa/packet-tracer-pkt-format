@@ -36,6 +36,24 @@ def _iter_devices(xml):
     return re.finditer(rb"<DEVICE>.*?</DEVICE>", xml, re.S)
 
 
+def load_templates(path):
+    """Load the shipped device/module template library.  Returns (models, modules)
+    where models maps model -> <DEVICE> bytes and modules maps module -> <SLOT> str.
+    Handles the gzip+base64 encoding used by tools/device_templates.json."""
+    import base64
+    import gzip
+    import json
+    t = json.load(open(path))
+    gz = t.get("gz", False)
+
+    def dec(v):
+        b = base64.b64decode(v)
+        return gzip.decompress(b) if gz else b
+
+    return ({k: dec(v) for k, v in t["models"].items()},
+            {k: dec(v).decode("utf-8") for k, v in t.get("modules", {}).items()})
+
+
 def harvest_models(saves_dir, wanted=None):
     """Return {model: <DEVICE> bytes} taking the first instance of each model."""
     import glob

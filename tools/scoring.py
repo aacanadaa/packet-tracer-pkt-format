@@ -202,11 +202,16 @@ def harvest_shapes(activity_xmls):
 
 
 def save_shapes(shapes, path):
-    json.dump(shapes, open(path, "w"), indent=1)
+    import gzip
+    open(path, "wb").write(gzip.compress(json.dumps(shapes).encode("utf-8"), 9))
 
 
 def load_shapes(path):
-    return json.load(open(path))
+    import gzip
+    b = open(path, "rb").read()
+    if b[:2] == b"\x1f\x8b":
+        b = gzip.decompress(b)
+    return json.loads(b)
 
 
 def _retarget(node_xml, name, overrides):
@@ -234,10 +239,12 @@ def from_shapes(spec, shapes):
     spec: [{"name": "R9", "model": "2911", "overrides": {...}}, ...]
     """
     init_nodes, comp_nodes = [], []
+    missing = []
     for d in spec:
         model = d["model"]
         if model not in shapes["models"]:
-            raise KeyError(f"no shape for model {model!r}; harvest one from an activity that has it")
+            missing.append(model)
+            continue
         sh = shapes["models"][model]
         if sh.get("init"):
             init_nodes.append(_retarget(sh["init"], d["name"], d.get("overrides")))
@@ -251,4 +258,7 @@ def from_shapes(spec, shapes):
                     % (net_open, "".join(init_nodes), net_close))
     comparisons = ("<COMPARISONS>%s%s%s%s</COMPARISONS>"
                    % (net_open, "".join(shapes.get("scaffold", [])), "".join(comp_nodes), net_close))
+    if missing:
+        import sys as _sys
+        print("scoring: no shape for %s (not graded)" % sorted(set(missing)), file=_sys.stderr)
     return initialsetup, comparisons

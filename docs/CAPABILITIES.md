@@ -11,7 +11,7 @@ items were tested by generating a file and loading it in Packet Tracer.
 | Power on/off | `<ENGINE><POWER>` | ✅ verified |
 | Modules | `<ENGINE><MODULE>/<SLOT>/<MODULE><MODEL>` | ✅ verified |
 | Copper cable | `<LINK><TYPE>eCopper`, `eStraightThrough` | ✅ verified |
-| Serial cable | `<LINK><TYPE>eSerial`, `<DCEDEV>/<DCEPORT>` | ⚠️ framing not pinned |
+| Serial cable | `<LINK><TYPE>eSerial` + `DCEDEV/DCEPORT` | ✅ cable loads |
 | IOS running-config | `<ENGINE><RUNNINGCONFIG><LINE>` | ✅ verified |
 | End-device IP / DHCP | NIC `<PORT><IP>/<SUBNET>/<PORT_GATEWAY>/<PORT_DHCP_ENABLE>` | ✅ verified |
 | OS image / boot | `<OS_IMAGE>`, `<OS_FILE_NAME>`, config register | 📖 read (set untested) |
@@ -93,9 +93,10 @@ Requirements: `<FROM>`/`<TO>` = device `SAVE_REF_ID`s, `<PORT>` names that exist
 on those devices, and a matching cable `<TYPE>`.  The `*_MEM_ADDR` values are
 not validated (PT rebinds).
 
-**Serial** uses `<TYPE>eSerial</TYPE>` with `<DCEDEV>/<DCEPORT>` identifying the
-DCE end, but the exact PT 9 framing (length, extra type, DCE/DTE pair) has not
-been reproduced yet — treat as a known gap.
+**Serial** uses `<TYPE>eSerial</TYPE>` with `<FROM>/<TO>` = device `SAVE_REF_ID`s
+and `<DCEDEV>/<DCEPORT>` naming the DCE end (the device that supplies `clock rate`).
+The cable loads; bringing the line protocol *up* still depends on matching
+clock/DCE config (cosmetic link colour).
 
 ## 5. Configuration
 
