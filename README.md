@@ -1,11 +1,43 @@
-# Packet Tracer 9 `.pkt` / `.pka` file format
+# Build Packet Tracer labs — without Packet Tracer
+
+> **Create Packet Tracer `.pkt` labs and scored `.pka` activities entirely offline,
+> with no Packet Tracer installed.**  This repo reverse-engineers the Packet Tracer 9
+> file format and ships a byte-exact codec plus a generator that writes devices,
+> modules, cabling, IOS config, PC IPs, instructions, the activity-wizard password,
+> and the scoring tree — straight to a file PT opens.
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![No Packet Tracer needed](https://img.shields.io/badge/Packet_Tracer-not_required-32d74b.svg)](#quickstart)
 [![Cisco Packet Tracer](https://img.shields.io/badge/Cisco_Packet_Tracer-1BA0D7?style=flat&logo=cisco&logoColor=white)](#status--scope)
 
-Reverse-engineering notes and a working decoder for the file format used by
-**Cisco Packet Tracer 9** (`.pkt` network files and `.pka` activity files).
+## Create a Packet Tracer, without Packet Tracer
+
+Packet Tracer is only needed to *open* the result — the lab itself is authored here:
+
+```python
+import lab_api
+models, modules = lab_api.load_templates("tools/device_templates.json")
+lab = lab_api.Lab("tools/network_seed.xml", models, modules)
+r  = lab.add_device("2911", "R1", 250, 350, install="HWIC-2T",
+                    ios_config=["interface GigabitEthernet0/0",
+                                " ip address 192.168.1.1 255.255.255.0", " no shutdown", "end"])
+sw = lab.add_device("2960-24TT", "SW1", 450, 350)
+pc = lab.add_device("PC-PT", "PC1", 650, 350,
+                    pc_ip=("192.168.1.10", "255.255.255.0", "192.168.1.1"))
+lab.link(r, "GigabitEthernet0/0", sw, "GigabitEthernet0/1")
+lab.link(sw, "FastEthernet0/1", pc, "FastEthernet0")
+lab.save("my_lab.pkt")            # open in Packet Tracer — no Packet Tracer used to build it
+```
+
+...or one-shot from a topology spec (devices + links → a scored, password-protected activity):
+
+```console
+$ python3 tools/make_scored_lab.py --out mylab.pka --spec topology.json --password hunter2
+```
+
+---
+
 
 Modern Packet Tracer files have **no magic header** and are fully encrypted, so
 `file`, `strings`, and hex dumps show nothing but noise.  This project documents

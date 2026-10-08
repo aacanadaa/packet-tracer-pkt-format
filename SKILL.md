@@ -1,8 +1,8 @@
 ---
 name: packet-tracer-pkt-format
 description: >-
-  Read/write Cisco Packet Tracer 9 `.pkt` / `.pka` files and generate complete,
-  scored activities offline (no Packet Tracer). Use when decoding a `.pkt`/`.pka`
+  Build Packet Tracer labs WITHOUT Packet Tracer: read/write Cisco Packet Tracer 9
+  `.pkt` / `.pka` files and generate complete, scored activities offline. Use when decoding a `.pkt`/`.pka`
   to XML, building a lab (place devices, install modules, power on/off, cable
   copper/serial, write IOS config and PC IPs), authoring an activity (`.pka`)
   with instructions, the activity-wizard password, permissions and a scoring
