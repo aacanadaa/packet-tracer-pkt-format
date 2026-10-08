@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pt9-format"
+version = "1.0.0"
+description = "Read/write codec for the Cisco Packet Tracer 9 .pkt/.pka container format"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "GPL-3.0-or-later" }
+keywords = ["packet-tracer", "cisco", "file-format", "twofish", "eax", "reverse-engineering"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Topic :: System :: Networking",
+]
+
+[project.scripts]
+pt9 = "pt9:main"
+
+[tool.setuptools]
+py-modules = ["pt9"]
