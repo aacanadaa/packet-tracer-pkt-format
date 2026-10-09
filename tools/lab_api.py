@@ -14,15 +14,26 @@ Verified capabilities
 *   ios_config=[...]                    <ENGINE><RUNNINGCONFIG><LINE>…  applied on load
 *   pc_ip=(ip,mask,gw)                  NIC <IP>/<SUBNET>/<PORT_GATEWAY>
 * install_module(dev, module, bay=0)    fill an empty <SLOT> with a <MODULE>
-* link(a, aport, b, bport)              copper eCopper/eStraightThrough
+* link(a, aport, b, bport, kind=…)      copper eCopper/eStraightThrough, serial eSerial
 * save(path)
 
-Known gaps: serial (`eSerial`) cable framing is not yet fully pinned.
+Physical placement
+------------------
+Every added device gets a freshly synthesized leaf in the PHYSICALWORKSPACE
+rack (a `<NODE><TYPE>6</TYPE>` with a new `<UUID_STR>`), and a matching
+`<WORKSPACE><PHYSICAL>` GUID path plus a `<PHYSICAL_CPUR>` block.  Two details
+are load-critical and were found empirically:
+  * the leaf UUID must be **braced** (`{uuid}`) in `<PHYSICAL>`, matching
+    `<UUID_STR>`; an unbraced UUID => "corrupted Physical Workspace data".
+  * a `<PHYSICAL_CPUR>` element must be present on the device.
+The seed's devices (and their workspace leaves) are removed automatically so no
+orphan leaves remain (orphans also corrupt the workspace).
 
 See docs/CAPABILITIES.md for the full documented model.
 """
 import os
 import re
+import copy
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -112,42 +123,53 @@ class Lab:
         self.devs = self.net.find("DEVICES")
         self.models = models
         self.modules = modules or {}
+        self._pw = self.base.find("PHYSICALWORKSPACE")
+        self._wsroot = self._pw.find("NODE") if self._pw is not None else None
+
         existing = self.devs.findall("DEVICE")
-        self._synth_leaf = not existing
+        # donor <PHYSICAL_CPUR> (structure template) from the seed's first device
+        self._donor_cpur = None
+        donor_pp = donor_cid = None
         if existing:
-            d0 = existing[0]
-            self._PH = d0.find("WORKSPACE/PHYSICAL").text.strip()
-            self._PP = d0.find("WORKSPACE/PHYSICAL_CPUR/PARENT_PATH").text.strip()
-            self._CID = d0.find("WORKSPACE/PHYSICAL_CPUR/CONTAINER_ID").text.strip()
-            self._CPX = d0.find("WORKSPACE/PHYSICAL_CPUR/X").text.strip()
-            self._rack = None
-        else:
-            # device-less seed: derive a placement from the physical workspace
-            pw = self.base.find("PHYSICALWORKSPACE")
-            self._PP = pw.findtext("HOMERACK")
-            rack = None
-            for n in pw.iter("NODE"):
-                if "rack" in (n.findtext("NAME") or "").lower():
-                    rack = n
-                    break
-            if rack is None or not self._PP:
-                raise ValueError("seed has no devices and no usable <PHYSICALWORKSPACE>/<HOMERACK>")
-            self._rack = rack
-            self._CID = rack.findtext("UUID_STR")
-            self._CPX = "4"
-            self._PH = None
-        self._initial_devs = list(self.devs.findall("DEVICE"))
+            dc = existing[0].find("WORKSPACE/PHYSICAL_CPUR")
+            if dc is not None:
+                self._donor_cpur = copy.deepcopy(dc)
+                donor_pp = dc.findtext("PARENT_PATH")
+                donor_cid = dc.findtext("CONTAINER_ID")
+        self._PP = donor_pp or (self._pw.findtext("HOMERACK") if self._pw is not None else None)
+        self._rack = self._find_container(donor_cid)
+        if self._rack is None or not self._PP or not self._CID:
+            raise ValueError("seed has no usable physical workspace (need HOMERACK + a Rack container)")
+
+        self._initial_devs = list(existing)
         self._n = 0
+        self._pos = 4
         self._mac = 0x2000
         self._els = {}
 
-    def _next_mac(self):
-        self._mac += 1
-        n = self._mac
-        return "%04X.%04X.%04X" % (0x0212, (n >> 16) & 0xFFFF, n & 0xFFFF)
+    # -- physical workspace helpers ---------------------------------------- #
+    def _find_container(self, cid):
+        """Find the container NODE (the Rack) and set self._CID to its UUID."""
+        root = self._wsroot
+        if root is None:
+            return None
+        rack = None
+        for n in root.iter("NODE"):
+            u = n.findtext("UUID_STR")
+            if cid and u == cid:
+                self._CID = cid
+                return n
+            if rack is None and (n.findtext("TYPE") == "4"
+                                 or "rack" in (n.findtext("NAME") or "").lower()):
+                rack = n
+        if rack is not None:
+            self._CID = rack.findtext("UUID_STR")
+        return rack
 
-    def _add_leaf(self, name, leaf_uuid, x=0):
+    def _add_leaf(self, name, leaf, x=0):
         ch = self._rack.find("CHILDREN")
+        if ch is None:
+            ch = ET.SubElement(self._rack, "CHILDREN")
         el = ET.fromstring(
             "<NODE><X>{x}</X><Y>0</Y><TYPE>6</TYPE><NAME translate=\"true\">{name}</NAME>"
             "<SX>1</SX><SY>1</SY><W>0</W><H>0</H><D>0</D>"
@@ -158,30 +180,59 @@ class Lab:
             "<BG_TILED>false</BG_TILED><CUSTOM_IMAGE_WIDTH>-1</CUSTOM_IMAGE_WIDTH>"
             "<CUSTOM_IMAGE_HEIGHT>-1</CUSTOM_IMAGE_HEIGHT><SCALE_FACTOR>1</SCALE_FACTOR>"
             "<UUID_STR>{{{u}}}</UUID_STR><SLOT>0</SLOT><SUB_SLOT>0</SUB_SLOT>"
-            "<ICP_CSX>0</ICP_CSX><ICP_CSY>0</ICP_CSY></NODE>".format(x=x, name=name, u=leaf_uuid))
+            "<ICP_CSX>0</ICP_CSX><ICP_CSY>0</ICP_CSY></NODE>".format(x=x, name=name, u=leaf))
         ch.append(el)
+
+    def _make_cpur(self, x):
+        """Return a <PHYSICAL_CPUR> string placed in the rack at position x."""
+        c = copy.deepcopy(self._donor_cpur) if self._donor_cpur is not None else ET.fromstring(
+            "<PHYSICAL_CPUR><X_PN>0.03175</X_PN><Y_PN>0.134</Y_PN><X>0</X><Y>0</Y>"
+            "<SLOT>0</SLOT><SUBSLOT>0</SUBSLOT><PARENT_PATH></PARENT_PATH>"
+            "<CONTAINER_ID></CONTAINER_ID><ICP_CONTAINER_SCENE_X>0</ICP_CONTAINER_SCENE_X>"
+            "<ICP_CONTAINER_SCENE_Y>0</ICP_CONTAINER_SCENE_Y>"
+            "<ORIGINAL_DEVICE_UUID></ORIGINAL_DEVICE_UUID></PHYSICAL_CPUR>")
+
+        def set_(tag, val):
+            e = c.find(tag)
+            if e is None:
+                e = ET.SubElement(c, tag)
+            e.text = val
+        set_("PARENT_PATH", self._PP)
+        set_("CONTAINER_ID", self._CID)
+        set_("X", str(x))
+        set_("Y", "0")
+        set_("SLOT", "0")
+        set_("SUBSLOT", "0")
+        set_("ORIGINAL_DEVICE_UUID", "{%s}" % uuid.uuid4())
+        return ET.tostring(c, encoding="unicode")
+
+    # -- devices ----------------------------------------------------------- #
+    def _next_mac(self):
+        self._mac += 1
+        n = self._mac
+        return "%04X.%04X.%04X" % (0x0212, (n >> 16) & 0xFFFF, n & 0xFFFF)
 
     def add_device(self, model, name, x=100, y=100, power=True, ios_config=None,
                    pc_ip=None, install=None, bay=0):
         i = self._n
         self._n += 1
-        if self._synth_leaf:
-            leaf = str(uuid.uuid4())
-            self._PH = "%s,%s,%s" % (self._PP, self._CID, leaf)
-            self._add_leaf(name, leaf, x=i * 2)
+        # fresh physical leaf
+        leaf = str(uuid.uuid4())
+        px = self._pos
+        self._pos += 6
+        self._add_leaf(name, leaf, x=px)
+        phys = "%s,%s,{%s}" % (self._PP, self._CID, leaf)
+
         blk = self.models[model].decode("utf-8", "replace")
         s = re.sub(r"save-ref-id:\d+", lambda m: "save-ref-id:%d" % (9_900_000_000_000_000_000 + i), blk)
         s = re.sub(r"<NAME[^>]*>.*?</NAME>", '<NAME translate="true">%s</NAME>' % name, s, count=1, flags=re.S)
         s = re.sub(r"(<WORKSPACE>\s*<LOGICAL>\s*<X>)[^<]*(</X>\s*<Y>)[^<]*(</Y>)",
                    lambda m: m.group(1) + str(x) + m.group(2) + str(y) + m.group(3), s, count=1, flags=re.S)
-        s = re.sub(r"<PHYSICAL[^>]*>[^<]*</PHYSICAL>", "<PHYSICAL>%s</PHYSICAL>" % self._PH, s)
-        if "<PHYSICAL_CPUR>" in s:
-            s = re.sub(r"<PARENT_PATH>[^<]*</PARENT_PATH>", "<PARENT_PATH>%s</PARENT_PATH>" % self._PP, s)
-            s = re.sub(r"<CONTAINER_ID>[^<]*</CONTAINER_ID>", "<CONTAINER_ID>%s</CONTAINER_ID>" % self._CID, s)
-            s = re.sub(r"(<PHYSICAL_CPUR>\s*<X_PN>[^<]*</X_PN>\s*<Y_PN>[^<]*</Y_PN>\s*<X>)[^<]*(</X>)",
-                       lambda m: m.group(1) + self._CPX + m.group(2), s, count=1, flags=re.S)
-        s = re.sub(r"<ORIGINAL_DEVICE_UUID>[^<]*</ORIGINAL_DEVICE_UUID>",
-                   lambda m: "<ORIGINAL_DEVICE_UUID>{%s}</ORIGINAL_DEVICE_UUID>" % uuid.uuid4(), s)
+        # replace PHYSICAL and rebuild PHYSICAL_CPUR
+        s = re.sub(r"<PHYSICAL[^>]*>[^<]*</PHYSICAL>", "<PHYSICAL>%s</PHYSICAL>" % phys, s)
+        s = re.sub(r"<PHYSICAL_CPUR>.*?</PHYSICAL_CPUR>", "", s, flags=re.S)
+        cpur = self._make_cpur(px)
+        s = re.sub(r"(<PHYSICAL>[^<]*</PHYSICAL>)", lambda m: m.group(1) + cpur, s, count=1)
         el = ET.fromstring(s)
         for tag in ("MACADDRESS", "BIA"):
             for e in el.iter(tag):
@@ -234,9 +285,53 @@ class Lab:
         for c in list(mod):
             slot.append(c)
 
-    def link(self, a_id, a_port, b_id, b_port, kind="copper", dce=None, dce_port=None):
+    def _append_config(self, dev_id, lines):
+        """Append IOS config lines to a device, before a trailing `end` if present."""
+        el = self._els.get(dev_id)
+        if el is None or not lines:
+            return
+        eng = el.find("ENGINE")
+        rc = eng.find("RUNNINGCONFIG")
+        if rc is None:
+            rc = ET.SubElement(eng, "RUNNINGCONFIG")
+        kids = list(rc)
+        idx = len(kids)
+        if kids and (kids[-1].text or "").strip().lower() == "end":
+            idx = len(kids) - 1
+        for off, l in enumerate(lines):
+            e = ET.Element("LINE")
+            e.text = l
+            rc.insert(idx + off, e)
+
+    def _set_serial_port(self, dev_id, port_name, rate):
+        """Set CLOCKRATE / CLOCKRATEFLAG=true / POWER=true on a serial port.
+        Both ends of a serial link carry POWER=true and CLOCKRATEFLAG=true; only the
+        DCE end carries a non-zero CLOCKRATE.  Without these the line stays down
+        (cable renders red) even if the IOS config is correct."""
+        el = self._els.get(dev_id)
+        if el is None:
+            return
+        ports = [p for p in el.iter("PORT") if p.findtext("TYPE") == "eSmartSerial"]
+        if not ports:
+            return
+        try:
+            idx = int(port_name.split("/")[-1])
+        except ValueError:
+            idx = 0
+        if idx >= len(ports):
+            idx = 0
+        p = ports[idx]
+        for tag, val in (("CLOCKRATE", str(rate)), ("CLOCKRATEFLAG", "true"), ("POWER", "true")):
+            e = p.find(tag)
+            if e is None:
+                e = ET.SubElement(p, tag)
+            e.text = val
+
+    def link(self, a_id, a_port, b_id, b_port, kind="copper", dce=None, dce_port=None, clock=128000):
         """Add a cable.  kind='copper' (eCopper/eStraightThrough) or
-        'serial' (eSerial; pass dce=<device id of the DCE end>)."""
+        'serial' (eSerial; pass dce=<device id of the DCE end>).  For a serial
+        link the DCE interface is given a `clock rate` automatically (without it
+        the line stays down / the cable renders red)."""
         L = ET.SubElement(self.net.find("LINKS"), "LINK")
         ET.SubElement(L, "TYPE").text = "eCopper" if kind == "copper" else ("eSerial" if kind == "serial" else None)
         cab = ET.SubElement(L, "CABLE")
@@ -248,11 +343,15 @@ class Lab:
                       ("TYPE", "eStraightThrough")]
         elif kind == "serial":
             dce = dce or a_id
+            dport = dce_port or (a_port if dce == a_id else b_port)
+            self._set_serial_port(a_id, a_port, clock if dce == a_id else 0)
+            self._set_serial_port(b_id, b_port, clock if dce == b_id else 0)
+            self._append_config(dce, ["interface %s" % dport, " clock rate %d" % clock])
             fields = [("LENGTH", "1"), ("FUNCTIONAL", "true"), ("FROM", a_id), ("PORT", a_port),
                       ("TO", b_id), ("PORT", b_port), ("FROM_DEVICE_MEM_ADDR", "1"), ("TO_DEVICE_MEM_ADDR", "2"),
                       ("FROM_PORT_MEM_ADDR", "3"), ("TO_PORT_MEM_ADDR", "4"),
-                      ("GEO_VIEW_COLOR", "#000000"), ("DCEDEV", dce),
-                      ("DCEPORT", dce_port or (a_port if dce == a_id else b_port))]
+                      ("GEO_VIEW_COLOR", "#1e59a5"), ("IS_MANAGED_IN_RACK_VIEW", "false"),
+                      ("DCEDEV", dce), ("DCEPORT", dport)]
         else:
             raise ValueError("kind must be 'copper' or 'serial'")
         for t, v in fields:
@@ -282,10 +381,31 @@ class Lab:
         return sid.text if sid is not None else None
 
     def drop_initial(self):
-        """Remove the seed's own devices (their physical leaves stay as orphans)."""
+        """Remove the seed's own devices, their workspace leaves, and any links that
+        referenced them (dangling links / orphan leaves corrupt the file)."""
+        dead = set()
         for el in self._initial_devs:
+            eng = el.find("ENGINE")
+            sid = eng.findtext("SAVE_REF_ID")
+            if sid:
+                dead.add(sid)
+            ph = el.findtext("WORKSPACE/PHYSICAL")
+            if ph and self._wsroot is not None:
+                leaf = "{%s}" % ph.split(",")[-1].strip().strip("{}")
+                for n in list(self._wsroot.iter("NODE")):
+                    if n.findtext("UUID_STR") == leaf:
+                        for parent in self._wsroot.iter("NODE"):
+                            ch = parent.find("CHILDREN")
+                            if ch is not None and n in list(ch):
+                                ch.remove(n)
             if el in list(self.devs):
                 self.devs.remove(el)
+        links = self.net.find("LINKS")
+        if links is not None and dead:
+            for L in list(links.findall("LINK")):
+                cab = L.find("CABLE")
+                if cab is not None and (cab.findtext("FROM") in dead or cab.findtext("TO") in dead):
+                    links.remove(L)
         self._initial_devs = []
 
     def save(self, path):

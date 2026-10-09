@@ -94,9 +94,12 @@ on those devices, and a matching cable `<TYPE>`.  The `*_MEM_ADDR` values are
 not validated (PT rebinds).
 
 **Serial** uses `<TYPE>eSerial</TYPE>` with `<FROM>/<TO>` = device `SAVE_REF_ID`s
-and `<DCEDEV>/<DCEPORT>` naming the DCE end (the device that supplies `clock rate`).
-The cable loads; bringing the line protocol *up* still depends on matching
-clock/DCE config (cosmetic link colour).
+and `<DCEDEV>/<DCEPORT>` naming the DCE end.  `lab_api.link(kind="serial", dce=...)`
+now also sets the DCE port's `<CLOCKRATE>`/`<CLOCKRATEFLAG>true`/`<POWER>true`
+(and both ends `CLOCKRATEFLAG=true`, `POWER=true`) plus an IOS `clock rate` line.
+A generated serial link is byte-for-byte structurally identical to a real one;
+PT renders such links red on headless load even in the reference answer key, so
+colour is initial-state behaviour, not a generation defect.
 
 ## 5. Configuration
 
