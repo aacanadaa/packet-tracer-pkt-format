@@ -249,10 +249,10 @@ def from_shapes(spec, shapes):
         if sh.get("init"):
             init_nodes.append(_retarget(sh["init"], d["name"], d.get("overrides")))
         comp_nodes.append(_retarget(sh["comp"], d["name"], d.get("overrides")))
-    net_open = ('<NODE><NAME checkType="1" eclass="8" headNode="true" translate="true" '
+    net_open = ('<NODE><NAME checkType="0" eclass="8" headNode="true" '
                 'incorrectFeedback="" nodeValue="" obfuscateName="false" overrideDBGrading="false" '
                 'variableEnabled="false" variableName="">Network</NAME><ID>Network</ID>'
-                '<COMPONENTS/><POINTS/>')
+                '<COMPONENTS></COMPONENTS><POINTS></POINTS>')
     net_close = "</NODE>"
     initialsetup = ("<INITIALSETUP>%s%s%s<LOAD_INIT_TREE>true</LOAD_INIT_TREE></INITIALSETUP>"
                     % (net_open, "".join(init_nodes), net_close))
