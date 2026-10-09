@@ -73,7 +73,7 @@ $ python3 pt9.py encode lab.xml -o lab.pkt
 | `tools/make_scored_lab.py` | **one-shot offline** generator: topology spec → scored `.pka` |
 | `tools/harvest_library.py` | (re)build `device_templates.json` / `device_shapes.json` |
 
-Shipped libraries: `tools/device_templates.json` (137 models, 75 modules),
+Shipped libraries: `tools/device_templates.json` (137 models, 78 modules),
 `tools/device_shapes.json` (14 scoring shapes), `tools/network_seed.xml`,
 `tools/activity_skeleton.xml`.
 
@@ -137,6 +137,12 @@ Or assemble it piecewise with `activity.Activity` + `scoring.from_shapes`.
   `eStraightThrough`; serial = `eSerial` + `DCEDEV`/`DCEPORT`. The `*_MEM_ADDR`
   values are **not** validated (PT rebinds by id + port).
 - **Power**: `<ENGINE><POWER>true|false>`.
+- **Physical placement** is synthesised: each device gets a fresh
+  `<PHYSICALWORKSPACE>` leaf (`<TYPE>6</TYPE>`) and a `<PHYSICAL_CPUR>`; the leaf
+  GUID in `<PHYSICAL>` must be **braced**.  `drop_initial()` also removes the
+  seed devices' leaves and their links (orphans/dangling links corrupt the file).
+- **Wireless** devices associate by SSID at runtime — no `<LINK>`.  Use
+  `Lab.set_wireless(dev, ssid, auth_type, encrypt_type, password=…)`.
 - **Activity (`.pka`)** root is `<PACKETTRACER5_ACTIVITY>` and embeds three
   networks: [0] current, [1] initial, [2] answer. `<ACTIVITY PASS="…">` is the
   activity-wizard password; `<INSTRUCTIONS>` holds HTML pages; scoring lives in
@@ -157,8 +163,11 @@ $ python3 tools/harvest_library.py --saves /opt/pt/saves --activities ./my_labs 
 - Scoring shapes cover 14 models (only activities contain scoring trees); models
   without a shape are ungraded, not fatal.
 - Scoring correctness is spot-verified, not exhaustively validated.
-- Wireless/AP/SSID, clusters, connectivity tests and scripted custom grading are
-  not authored yet. Serial cables load; line-up needs matching clock/DCE config.
+- Wireless placement + SSID config works (association not exercised headlessly);
+  clusters use the default root cluster; connectivity tests and scripted custom
+  grading are not authored.  Serial links are generated faithfully (PT renders
+  them like the reference answer key).  Headless PT does not exercise
+  partial-credit grading (the genuine reference activity also reports complete).
 
 ## License
 

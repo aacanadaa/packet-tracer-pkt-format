@@ -375,6 +375,39 @@ class Lab:
             e = ET.SubElement(eng, "CONFIG_REGISTER")
         e.text = str(value)
 
+    def set_wireless(self, dev_id, ssid=None, auth_type=None, encrypt_type=None,
+                     password=None, userid=None, channel=None, radio_band=None):
+        """Set the SSID / security on every wireless port of a device (AP, home
+        router, laptop, phone, ...).  Wireless devices associate by SSID at runtime
+        (no `<LINK>` element is created).  `auth_type`/`encrypt_type` are the raw
+        PT enum values (e.g. 0=open, WPA/WPA2 variants differ per device)."""
+        el = self._els[dev_id]
+        n = 0
+        for p in el.iter("PORT"):
+            if p.find("SSID") is None:
+                continue
+            n += 1
+            def setp(tag, val):
+                e = p.find(tag)
+                if e is None:
+                    e = ET.SubElement(p, tag)
+                e.text = str(val)
+            if ssid is not None:
+                setp("SSID", ssid)
+            if auth_type is not None:
+                setp("AUTHEN_TYPE", auth_type)
+            if encrypt_type is not None:
+                setp("ENCRYPT_TYPE", encrypt_type)
+            if password is not None and p.find("WPA_EAP_PASSWORD") is not None:
+                setp("WPA_EAP_PASSWORD", password)
+            if userid is not None and p.find("WPA_EAP_USERID") is not None:
+                setp("WPA_EAP_USERID", userid)
+            if channel is not None:
+                setp("CHANNEL", channel)
+            if radio_band is not None:
+                setp("RADIO_BAND", radio_band)
+        return n
+
     def initial_id(self, index=0):
         eng = self._initial_devs[index].find("ENGINE")
         sid = eng.find("SAVE_REF_ID")
