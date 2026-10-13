@@ -239,4 +239,3 @@ Key facts for anyone generating files (details in the scene-graph notes):
 Free for non-commercial use. If you want to use this commercially, open an
 issue and we will talk about a commercial licence.
 
-> Creative Commons licences are not used here on purpose: CC themselves advise
