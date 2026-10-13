@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Rust accelerator build artefacts (native/pkt_core_native); the wheels it
+# produces land in dist/, which is already ignored above.
+native/pkt_core_native/target/
+
+# Packet Tracer sample binaries are deliberately NOT committed.
+# See corpus/README.md — the corpus is reproduced by corpus/fetch_corpus.py,
+# pinned by SHA-256 in corpus/CORPUS_INDEX.tsv.
+*.pkt
+*.pka
+*.xml
+!tools/*.xml
+
+# The only container files shipped are self-authored, GPL samples.
+!corpus/samples/*.pkt
+!corpus/samples/*.pka
+
+# Generated unpack fixtures are committed (regenerate with pkt unpack).
+!tests/fixtures/**/*.xml
+!tests/fixtures/**/*.cfg
+!tests/fixtures/**/*.json
+!tests/fixtures/**/*.dot
+
+# Harvested third-party corpus (bulk) and scratch trees are never committed.
+corpus/internet/
+corpus/_work/
+corpus/files/

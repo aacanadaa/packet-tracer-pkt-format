@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pkt-core"
+version = "0.2.0"
+description = "Type-safe reader/writer for Cisco Packet Tracer .pkt/.pka containers, plus a reverse-engineering reference codec"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "aacanadaa" }]
+keywords = ["packet-tracer", "pkt", "pka", "cisco", "file-format", "twofish", "eax", "reverse-engineering"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: System :: Networking",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "mypy>=1.8", "hypothesis>=6.90"]
+
+[project.scripts]
+pkt = "pkt_core.cli.main:main"
+pt9 = "pt9:main"
+
+[tool.setuptools]
+py-modules = ["pt9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+warn_unreachable = true
+# typings/ carries the stub for the optional Rust accelerator module
+# pkt_core_native, so mypy --strict stays clean whether or not the extension
+# is installed in the environment running the check.
+mypy_path = "typings"
+
+[tool.coverage.run]
+branch = true
+source = ["pkt_core"]
+
+[tool.coverage.report]
+# The brief sets the bar at 90% on codec and models; the project currently
+# sits at 96% overall. Enforced so regressions cannot land unnoticed.
+fail_under = 90
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers -m 'not corpus'"
+markers = [
+  "corpus: whole-corpus acceptance tests (slow; opt in with -m corpus)",
+]
