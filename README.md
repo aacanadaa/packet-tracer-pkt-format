@@ -291,6 +291,11 @@ Key facts for anyone generating files (details in the scene-graph notes):
 
 **GNU General Public License v3.0 or later** — see [LICENSE](LICENSE).
 
-Free for non-commercial use. If you want to use this commercially, open an
-issue and we will talk about a commercial licence.
+You may use, modify and redistribute this software under those terms, **including
+commercially**. There is no separate commercial licence to negotiate: the GPL
+already permits commercial use.
+
+Earlier releases of this project were distributed under a non-commercial
+licence. That is no longer the case, and the GPL is the only licence that
+applies from the commit that added it onwards.
 
