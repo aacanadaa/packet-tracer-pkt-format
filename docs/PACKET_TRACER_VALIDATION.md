@@ -83,7 +83,7 @@ This closes the acceptance criterion for both claims:
 2. the real application opens and renders what we write — including files
    Packet Tracer never produced.
 
-## Why PT 9.0.1 originally could not be used for the visual check
+## PT 9.0.1 first launch needs an account — but only the first launch
 
 PT 9.0.1 will not proceed past its start screen without a **Cisco Networking
 Academy login**:
@@ -96,15 +96,37 @@ Academy login**:
 * "Use internal web browser for Cisco Networking Academy login"
 * Proxy settings
 
-**There is no offline or guest mode.** Fabricating or borrowing credentials is
-not something this project will do, so the final "watch the topology render"
-step is not completable against PT 9.x from this environment.
+There is no guest mode. Fabricating or borrowing credentials is not something
+this project will do, so the sign-in must be performed by the operator.
 
-## Path to completion
+**However — and this corrected an earlier conclusion in this document — the
+sign-in is one-time, not per-launch.** Once the EULA and account state are
+persisted under `~/.local/.packettracer/` (e.g.
+`eula-Cisco_Packet_Tracer_9.0.1`), Packet Tracer starts **straight to the
+workspace with no network access at all**. The earlier note that the visual
+check "is not completable against PT 9.x from this environment" was wrong, and
+the 290-device JASDF model has since been verified this way end to end:
 
-Older Packet Tracer builds ran without an account. PT **8.2.x** and especially
-PT **7.3.x** are the candidates; PT 7.3.1 is additionally the exact version
-that wrote a substantial part of the corpus (`<VERSION>7.3.1.0362`, 98 files).
+```console
+$ xvfb-run -a /usr/local/bin/packettracer /tmp/verify/ent.pkt
+```
+
+Confirmed on this machine with `/opt/pt/packettracer.AppImage`: the file opens
+with no error dialog, the **physical** workspace renders a populated rack (so
+the braced `<PHYSICAL>` UUID path is correct), the logical topology draws with
+cables and lit link lights, and every device is powered.
+
+Amber/orange port dots on first open are Packet Tracer's spanning-tree
+blocking/learning state and are expected on this lab — see problem 14 in
+`docs/ENTERPRISE_PROBLEMS.md`.
+
+## Path to completion on other versions
+
+Older Packet Tracer builds ran without an account at all, which is why the
+earlier verification work used them. PT **7.3.1** is additionally the exact
+version that wrote a substantial part of the corpus
+(`<VERSION>7.3.1.0362`, 98 files). It is *not* installed on this machine any
+more; PT 9.0.1 is, and it is sufficient.
 
 ```console
 $ tools/verify_in_packet_tracer.sh /path/to/7.3.1/opt/pt/bin/PacketTracer \

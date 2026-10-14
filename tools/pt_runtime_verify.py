@@ -1129,6 +1129,45 @@ def _fit(pairs: list[tuple[float, float]]) -> tuple[float, float]:
     return scale, (sy - scale * sx) / n
 
 
+# Packet Tracer draws router/switch icons in a steel blue; the toolbar navy is
+# much darker (b~77) and the canvas is white, so this range isolates the icons.
+_ICON_BLUE = ((100, 140, 150), (200, 220, 235))
+
+
+def find_icon_candidates(screen: Screen, shot: Path, canvas: Canvas,
+                         limit: int = 16, bin_px: int = 5,
+                         min_hits: int = 6) -> list[tuple[int, int]]:
+    """Screen points that look like device icons, densest first.
+
+    Probe grids at random miss a 40x40 icon on a 1570x448 workspace, so the
+    calibration probes are aimed at pixels that actually have icon colour.
+    """
+    x, y, w, h = canvas.region()
+    proc = run([screen.tc.magick or "convert", str(shot),
+                "-crop", f"{w}x{h}+{x}+{y}", "+repage", "-sample", "25%", "txt:-"],
+               timeout=180)
+    bins: Counter[tuple[int, int]] = Counter()
+    for line in proc.stdout.splitlines():
+        m = re.match(r"(\d+),(\d+): \((\d+),(\d+),(\d+)", line)
+        if not m:
+            continue
+        bx, by = int(m.group(1)), int(m.group(2))
+        r, g, b = int(m.group(3)), int(m.group(4)), int(m.group(5))
+        if _ICON_BLUE[0][0] <= r <= _ICON_BLUE[1][0] and \
+           _ICON_BLUE[0][1] <= g <= _ICON_BLUE[1][1] and \
+           _ICON_BLUE[0][2] <= b <= _ICON_BLUE[1][2]:
+            bins[(bx // bin_px, by // bin_px)] += 1
+    points = []
+    for (bx, by), hits in bins.most_common():
+        if hits < min_hits:
+            break
+        points.append((canvas.x + (bx * bin_px + bin_px // 2) * 4,
+                       canvas.y + (by * bin_px + bin_px // 2) * 4))
+        if len(points) >= limit * 2:
+            break
+    return points[:limit]
+
+
 def calibrate_view(pt: PacketTracer, xdo: Xdo, canvas: Canvas,
                    devices: Sequence[DeviceInfo], main: int,
                    *, cols: int = 4, rows: int = 3,
@@ -1144,12 +1183,19 @@ def calibrate_view(pt: PacketTracer, xdo: Xdo, canvas: Canvas,
     xs: list[tuple[float, float]] = []
     ys: list[tuple[float, float]] = []
     points: list[dict[str, Any]] = []
-    for iy in range(rows):
-        for ix in range(cols):
+    shot = screen.capture("02_calibration_view.png")
+    probes: list[tuple[int, int]] = []
+    try:
+        probes = find_icon_candidates(screen, shot, canvas, limit=cols * rows)
+    except Exception:  # noqa: BLE001 - fall back to a plain grid
+        probes = []
+    if len(probes) < 3:
+        probes = [(canvas.x + int(canvas.w * (ix + 0.5) / cols),
+                   canvas.y + int(canvas.h * (iy + 0.5) / rows))
+                  for iy in range(rows) for ix in range(cols)]
+    for px, py in probes:
             if len(points) >= max_hits:
                 break
-            px = canvas.x + int(canvas.w * (ix + 0.5) / cols)
-            py = canvas.y + int(canvas.h * (iy + 0.5) / rows)
             before = {w for w, _ in pt.other_windows(main)}
             xdo.click(px, py, repeat=2)
             time.sleep(2.5)

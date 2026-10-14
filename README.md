@@ -126,6 +126,8 @@ third-party files used for the reverse engineering are **not** committed — see
 
 ## Usage
 
+`pt9.py` is the original single-file reader/writer; `pkt` is the full CLI.
+
 ```console
 $ sudo apt install libgcrypt20            # only dependency (block cipher primitive)
 $ python3 pt9.py info   my_lab.pkt
@@ -137,6 +139,59 @@ $ python3 pt9.py decode course_activity.pka -o activity.xml      # .pka uses the
 $ python3 pt9.py encode my_lab.xml -o my_lab.pkt                 # write it back
 $ python3 -m unittest discover -s tests -v                       # self-tests
 ```
+
+The `pkt` entry point adds inspection, diffing, export and auditing:
+
+```console
+$ pkt info    my_lab.pkt                 # container metadata, size, root tag
+$ pkt unpack  my_lab.pkt -o out/         # XML + per-device IOS configs + topology
+$ pkt pack    out/ -o rebuilt.pkt        # byte-exact reconstruction
+$ pkt diff    before.pkt after.pkt       # structural diff
+$ pkt export  my_lab.pkt -f graphviz     # graphviz / netbox / containerlab
+$ pkt audit   my_lab.pkt --templates tools/device_templates.json
+```
+
+### `pkt audit` — why it exists
+
+A count is only meaningful if the counted things are **distinct**. Early
+versions of this toolkit shipped a 290-device model whose service totals were
+inflated by template leftovers — 202 "AAA clients" of which only 140 were
+distinct (the other 63 were one phantom `192.168.10.1` copied off a harvested
+device template onto every device), and 259 "DHCP pools" of which 131 were
+distinct. The validator asserted *presence*, so it printed `PASSED (0 warnings)`
+while reporting both wrong numbers.
+
+`pkt audit` prints raw **and** distinct counts for every service family, flags
+records that came from a harvested template rather than from the author, and
+**exits non-zero** on any duplicate. Real output for the enterprise model *before*
+it was sanitised:
+
+```console
+$ pkt audit JASDF_AEWC_JADGE.pkt --templates tools/device_templates.json
+device_names: 290 raw, 290 distinct
+config lines  : min=78 median=143 max=250 total=22,579 (143 IOS devices with
+                STARTUPCONFIG); 22,827 <LINE> elements in 205 RUNNINGCONFIG blocks
+services      : 496 DNS records (248 distinct x 2 servers)
+  aaa_clients: 202 raw, 140 distinct, 62 duplicate instances
+               (e.g. 192.168.10.1 x63), 63 template leftovers -> 139 authored
+  dhcp_pools : 259 raw, 133 distinct, 126 duplicate instances
+               (e.g. serverPool / 0.0.0.0 / 0.0.0.0 x65), 128 template leftovers
+  aaa_users  :  65 raw,   3 distinct, 62 duplicate instances (e.g. user x63)
+  ftp_accounts: 64 raw,   3 distinct, 61 duplicate instances (e.g. cisco x62)
+  FAIL duplicate-dhcp-pool-name: pool name 'serverPool' is used by 128 pools
+  FAIL duplicate-dhcp-pool-name: pool name 'IRUMA-VLAN10' is used by 2 pools
+  ...
+RESULT: FAILED (15 failures, 0 warnings)
+```
+
+Note the config-line row: it prints **both** figures, because "22,579" and
+"22,827" were both correct under different counting methods (IOS devices that
+carry a running config, versus raw `<LINE>` elements in all 205 blocks). The
+earlier documentation published one number without its method, which made it
+unreproducible; the audit prints the method with the figure.
+
+The rule this encodes, and which the library now follows everywhere: **if a
+validator prints a count, it must prove those items are distinct.**
 
 Example decrypted root elements:
 
