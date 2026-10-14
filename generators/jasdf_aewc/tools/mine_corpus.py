@@ -5,12 +5,30 @@
    (3) ASA 5505 / WLC / IR1101 / IE-9320 usage samples
 """
 import sys, re, json, glob, collections, os
-sys.path.insert(0, '/home/saoria/testing/packet-tracer-pkt-format')
-sys.path.insert(0, '/home/saoria/testing/packet-tracer-pkt-format/tools')
+from pathlib import Path
+
+def _find_toolkit() -> Path:
+    """PKT_TOOLKIT if set, else search upward for tools/lab_api.py + src/pkt_core.
+
+    Portability (problem 32): never hardcode an absolute checkout path -- it
+    only works on the machine that built the lab.
+    """
+    env = os.environ.get("PKT_TOOLKIT")
+    if env:
+        return Path(env)
+    for cand in Path(__file__).resolve().parent.parents:
+        if (cand / "tools" / "lab_api.py").is_file() and (cand / "src" / "pkt_core").is_dir():
+            return cand
+    raise SystemExit("error: cannot find the pkt-core toolkit; set PKT_TOOLKIT")
+
+
+TK = _find_toolkit()
+sys.path.insert(0, str(TK))
+sys.path.insert(0, str(TK / 'tools'))
 import pt9
 import xml.etree.ElementTree as ET
 
-CORPUS = '/home/saoria/testing/packet-tracer-pkt-format/corpus/files'
+CORPUS = os.environ.get('PT_CORPUS', str(TK / 'corpus' / 'files'))
 files = sorted(glob.glob(os.path.join(CORPUS, '**', '*.pkt'), recursive=True)) + \
         sorted(glob.glob(os.path.join(CORPUS, '**', '*.pka'), recursive=True))
 print(f'scanning {len(files)} files')

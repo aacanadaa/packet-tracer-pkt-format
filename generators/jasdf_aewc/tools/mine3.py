@@ -1,11 +1,29 @@
 #!/usr/bin/env python3
 """Model-aware corpus miner: exact model -> port names, plus real IOS config samples."""
 import sys, re, json, glob, collections, os
-sys.path.insert(0,'/home/saoria/testing/packet-tracer-pkt-format')
+from pathlib import Path
+
+def _find_toolkit() -> Path:
+    """PKT_TOOLKIT if set, else search upward for tools/lab_api.py + src/pkt_core.
+
+    Portability (problem 32): never hardcode an absolute checkout path -- it
+    only works on the machine that built the lab.
+    """
+    env = os.environ.get("PKT_TOOLKIT")
+    if env:
+        return Path(env)
+    for cand in Path(__file__).resolve().parent.parents:
+        if (cand / "tools" / "lab_api.py").is_file() and (cand / "src" / "pkt_core").is_dir():
+            return cand
+    raise SystemExit("error: cannot find the pkt-core toolkit; set PKT_TOOLKIT")
+
+
+TK = _find_toolkit()
+sys.path.insert(0,str(TK))
 import pt9
 import xml.etree.ElementTree as ET
 
-CORPUS='/home/saoria/testing/packet-tracer-pkt-format/corpus/files'
+CORPUS = os.environ.get('PT_CORPUS', str(TK / 'corpus' / 'files'))
 files=sorted(glob.glob(os.path.join(CORPUS,'**','*.pkt'),recursive=True))+sorted(glob.glob(os.path.join(CORPUS,'**','*.pka'),recursive=True))
 TARGETS={'2911','2901','2811','1841','1941','ISR4331','ISR4321','IR1101','IR8340','CGR1240','819HGW','829',
  '2960-24TT','2950-24','2950T-24','3560-24PS','3650-24PS','IE-2000','IE-3400','IE-9320','5505',

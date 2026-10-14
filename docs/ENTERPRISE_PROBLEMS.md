@@ -86,9 +86,10 @@ resolution log at the end for the evidence, or run it yourself:
 
 ```console
 $ cd generators/jasdf_aewc && ./run_all.sh enterprise   # build + all gates
-$ ../.venv/bin/python tools/check_layout.py out/JASDF_AEWC_JADGE.pkt
-$ ../.venv/bin/python -m pkt_core.cli.main audit out/JASDF_AEWC_JADGE.pkt \
-      --templates ../tools/device_templates.json
+$ cd ../..                                              # back to the toolkit root
+$ ../.venv/bin/python tools/check_layout.py generators/jasdf_aewc/out/JASDF_AEWC_JADGE.pkt
+$ ../.venv/bin/python -m pkt_core.cli.main audit generators/jasdf_aewc/out/JASDF_AEWC_JADGE.pkt \
+      --templates tools/device_templates.json
 ```
 
 
@@ -345,7 +346,7 @@ From `JASDF_AEWC_EVIDENCE.md` §2:
 An unattested port name produces a **silently dead link** — PT renders the cable
 but no interface terminates it. This is the kind of failure nothing reports.
 
-**Done about it:** `tools/build_port_model.py` mines five evidence tiers
+**Done about it:** `generators/jasdf_aewc/tools/build_port_model.py` mines five evidence tiers
 (Cisco's 299 sample labs, the 952-file corpus, interface names inside
 running-configs, and the `.ptd` templates) into `build/port_model.json`, and
 `validate.py` looks up every `(model, port)` pair in every `<LINK>`. All 652
@@ -396,7 +397,7 @@ actually having that media family, and records a provenance tier per port.
 > This is documented Cisco behaviour, not a fault. Toggling between Realtime and
 > Simulation mode 3–4 times clears it immediately."
 
-Confirmed three ways: `tools/stp_probe.py` shows the same switch config is green
+Confirmed three ways: `generators/jasdf_aewc/tools/stp_probe.py` shows the same switch config is green
 in isolation; toggling Realtime/Simulation clears the full lab; and the amber is
 transient. PT's own help is quoted in `VALIDATION.md`.
 
@@ -572,7 +573,7 @@ hash so the corpus is reproducible if they reappear.
 **Severity:** Low · **Status: NOT-A-BUG**
 
 > "Packet Tracer draws **serial cables in red** regardless of link state. A
-> minimal two-router probe (`tools/serial_probe.py`) confirms this: a single
+> minimal two-router probe (`generators/jasdf_aewc/tools/serial_probe.py`) confirms this: a single
 > 2911↔2911 serial link shows a red cable with **green** indicators at both
 > ends."
 

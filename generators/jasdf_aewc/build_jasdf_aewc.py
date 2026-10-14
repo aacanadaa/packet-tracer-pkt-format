@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 build_jasdf_aewc.py -- generate a large, fully-configured Cisco Packet Tracer
 model of a Japan Air Self-Defense Force (JASDF) Airborne Early Warning &

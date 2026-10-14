@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 jasdf_kit.py -- configuration + service-injection toolkit for the
 JASDF AEW&C (AWAD/AWACS) enterprise Packet Tracer model.

@@ -151,6 +151,56 @@ lab.link(sw, "FastEthernet0/1", pc, "FastEthernet0")
 lab.save("lab.pkt")
 ```
 
+**Two ways to name a bay, and they are not the same thing.** `install=` / the default
+`bay=0` means *the next empty bay* — the right choice when you are filling bays in order,
+which is why the example above needs no bay number. `install_module(..., slot=N)` means
+*absolute bay N*, counting occupied ones, and does not shift as other bays fill. Use
+`slot=` only when a specific bay matters. `bay=N` for N > 0 **raises** on purpose: it used
+to index the list of *currently empty* bays, which renumbers as they fill, so `bay=1`
+silently skipped a bay after `bay=0` was used (problem 7). One module fills one bay.
+
+**A cable is not a configuration.** `lab.link()` draws the cable and sets the port's
+electrical properties; it does not give an interface an address. If your config emitter is
+driven by a registry of routed interfaces, then a bearer that was never registered gets no
+`interface` block, no `ip address`, no `no shutdown` — and the cable renders **dead** while
+every structural gate still passes. This is exactly how the 36 serial bearers in the
+enterprise lab shipped unaddressed (problem 8), and it was found only by opening the file
+in Packet Tracer.
+
+The gap is visible if you look: after a bare `link(kind="serial", dce=r1)`, the DCE's
+config ends with
+
+```
+interface Serial0/0/0
+ clock rate 2000000        <- the cable's timing
+end                        <- and nothing else: no ip address, no no shutdown
+```
+
+That is a live interface with no identity. Both ends need a `/30` and `no shutdown`:
+
+```python
+# schematic — this is the shape of JASDF.slink() in the enterprise generator,
+# not runnable lab_api; alloc_p2p/routed/M30 are the generator's own helpers.
+ia, ib = alloc_p2p()                       # e.g. 10.99.6.0/30
+routed += [(r1, "Serial0/0/0", ia, M30), (r2, "Serial0/0/0", ib, M30)]
+lab.link(r1, "Serial0/0/0", r2, "Serial0/0/0",
+         kind="serial", dce=r1, clock=2_000_000)
+```
+
+For serial, pass `kind="serial"` and name the **DCE** end with `dce=`; `link()` then writes
+`CLOCKRATE`, `CLOCKRATEFLAG=true` and `POWER=true` on that port itself, and appends an
+`interface … / clock rate …` fragment to that device's config.
+
+Note the interaction: because `link()` *appends* to `RUNNINGCONFIG`, a later wholesale
+config rewrite (delete the `RUNNINGCONFIG` and re-emit it) silently discards that fragment.
+That is why the generator registers both ends in its `routed` list first and lets
+`router_config()` emit the address, `no shutdown` **and** `clock rate` together — so the
+interface block survives the rewrite and the port-level timing from `link()` backs it up.
+
+Without timing from exactly one end the line stays down and the cable draws red (see the
+false-alarm section below — red alone is not proof of a fault, but red *with no address*
+is).
+
 ## PITFALL — device names collide with the seed
 
 `network_seed.xml` ships **7 pre-existing devices**:
@@ -437,6 +487,112 @@ leftover. Never a bare presence test.
 This also explains Rule 1. The template's `POWER` is an answer; writing a
 constant over it *lost* the template's authorship, and then a presence check that
 saw `POWER` at all was satisfied.
+
+## Before you ship — run the gates, in this order
+
+Rules 1–6 are disciplines; these are the commands that *enforce* them. Each exits
+non-zero on failure, so they compose in a script: `generators/jasdf_aewc/run_all.sh`
+chains gates 1–3 (plus its own `validate.py`, which adds the `hostname <name>`
+identity check from Rule 6) and then builds the diagrams, docs and checksums. Gates 4
+and 5 are heavier and were run separately as evidence, not on every build. Run from
+the repo root with the venv active.
+
+| # | Command | Proves | Non-zero when |
+|---|---|---|---|
+| 1 | `python3 tools/finalise_lab.py lab.pkt --templates tools/device_templates.json` | the single writer: sanitises un-authored fields, repacks, then **re-gates the bytes actually written** — layout, audit, and byte-exact decode round-trip | layout violation, audit finding, or round-trip DIFFERS (exit 1) |
+| 2 | `python3 tools/check_layout.py lab.pkt` | geometry — label boxes, on-page, coincidence, NN spacing | any overlap, off-page icon, coincident pair, unreadable file (exit 1) |
+| 3 | `pkt audit lab.pkt --templates tools/device_templates.json` | raw **and** distinct counts per service family, template leftovers | any duplicate — i.e. a count that was never distinct (exit 1) |
+| 4 | `python3 tools/audit_ios_commands.py --artifact lab.pkt --corpus <corpus>` | every config line against the attested corpus | a **suspicious** signature (exit **2**). Unattested-but-plausible lines are reported and do *not* fail — 136 of 235 signatures are normally UNATTESTED, so exit 0 here is the expected state |
+| 5 | `python3 tools/pt_runtime_verify.py --artifact lab.pkt` | Packet Tracer actually loads it: renders, converges, pings | load failure, unreachable host |
+
+Gate 1's round-trip check is the library's core promise tested on real output, not on a
+fixture: the bytes written are decoded again and compared. If that line says `DIFFERS`, the
+artifact is not shippable no matter what else passed.
+
+Gate 4 needs the reference corpus, which is *not* committed (see `corpus/README.md`;
+`python3 corpus/fetch_corpus.py` reproduces it). Point `--corpus` at wherever that put the
+files — the decoded result is cached in `build/ios_attestation.json`, which records the
+`corpus_dir` it used, so a re-run is fast. On the shipped lab it decodes 1,058 files and
+reports 0 suspicious.
+
+Gates 1–3 are static and fast. Gate 4 needs a cold-cache corpus decode first
+(~1–3 min for 1,058 files), then it is cached. **Gate 5 is the only one that can catch
+problem 8** (a bearer that is structurally perfect and functionally dead) and problem 24
+(structure ≠ function). If you can only run one, run gate 5 — it needs PT under Xvfb, which
+works offline here:
+
+```console
+$ xvfb-run -a python3 tools/pt_runtime_verify.py --artifact lab.pkt \\
+      --username admin --password cisco --outdir build/verify
+```
+
+Then the checks no tool can make for you:
+
+- **Can anyone log in?** Device credentials (`username`/`enable secret`, line vty) must be
+  documented in the README or derivable from the file — a lab nobody can enter is not a lab
+  (problem 36). Gate 5 needs these too, which is why it takes `--username/--password`.
+- **Does the published number match the gate's number?** Rule 5. Re-run `--update-report`
+  after any edit; a figure typed from memory is a claim, not a measurement.
+- **Would it run on someone else's machine?** No absolute paths in anything you ship
+  (problem 32):
+
+  ```console
+  $ grep -rn '/home/\|/Users/' --include='*.py' --include='*.sh' <shipped tree>
+  ```
+
+  This is not hypothetical — a sweep of this repo found **seven** scripts that hardcoded
+  `/home/saoria/testing/packet-tracer-pkt-format`, a *different, stale checkout*. They
+  worked on the author's box (the path existed) and silently imported old code, and would
+  have died with `ModuleNotFoundError` anywhere else. Two of them were called by
+  `run_all.sh`. Resolve the toolchain instead of pinning it:
+
+  ```python
+  def _find_toolkit() -> Path:
+      env = os.environ.get("PKT_TOOLKIT")          # explicit override wins
+      if env:
+          return Path(env)
+      for cand in Path(__file__).resolve().parent.parents:   # else search upward
+          if (cand / "tools" / "lab_api.py").is_file() and (cand / "src" / "pkt_core").is_dir():
+              return cand
+      raise SystemExit("error: cannot find the pkt-core toolkit; set PKT_TOOLKIT")
+  ```
+
+  An env-var default like `os.environ.get("PKT_TOOLKIT", "/home/you/...")` is not enough on
+  its own: it still breaks for anyone who does not set the variable. Search upward and fail
+  with a message that says how to fix it.
+
+  The same sweep caught a second-order version: `docs/CORPUS_REPORT.md` cited
+  `tools/phase1_inventory.py` for its numbers, but that script lived outside the repo — so
+  the report was not reproducible from what shipped. Cite only what you ship, and ship what
+  you cite.
+
+## False alarms — what Packet Tracer's rendering does *not* mean
+
+Four things look like failures and are not. Chasing them wastes a cycle; "fixing" them
+breaks a correct lab. Each is recorded with its probe in `docs/ENTERPRISE_PROBLEMS.md`.
+
+- **Amber link lights after opening.** Packet Tracer runs spanning-tree convergence on load,
+  so access ports show amber for the first ~30 s (problem 14). Toggling Realtime⇄Simulation
+  3–4 times clears it. Amber is STP *state*, not a broken link — on a topology with
+  redundant paths, some ports are *supposed* to be amber, and all-green would mean you had
+  accidentally built a loop-free tree.
+- **Convergence taking longer than 75 s on a large lab.** At 290 devices/31 switches the
+  convergence time is unbounded and **run-dependent** — the same file converged fully on an
+  earlier run (problem 15). Verified via
+  `generators/jasdf_aewc/tools/stp_probe.py`: the same switch config is green in
+  isolation. Re-run rather than redesign.
+- **Red serial cables.** Packet Tracer draws serial cables red *regardless of link state*; a
+  minimal 2911↔2911 probe shows a red cable with **green** indicators at both ends
+  (problem 28). With 36 serial bearers this is very easy to misread as mass link failure.
+  Red is only meaningful together with evidence — e.g. red *and* no address on the interface.
+- **A duplicate `<NAME>` in the XML.** `<NAME translate="true">` appears in the physical
+  workspace tree as well as at `ENGINE/NAME` (problem 30), so a naive "find every NAME and
+  check uniqueness" sweep reports collisions that are not real. Resolve names at
+  `ENGINE/NAME`.
+
+Corollary: a gate that fails is not automatically a defect in your lab, and a gate that
+passes is not proof of correctness. Check *which* gate and *what* it actually measured
+before reacting to either.
 
 ## Workflow — a full scored activity (`.pka`)
 

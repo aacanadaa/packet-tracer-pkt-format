@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 export_plan.py -- read a generated .pkt and export the as-built documentation:
 
@@ -20,7 +20,23 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TK = Path("/home/saoria/testing/packet-tracer-pkt-format")
+
+def _find_toolkit() -> Path:
+    """PKT_TOOLKIT if set, else search upward for tools/lab_api.py + src/pkt_core.
+
+    Portability (problem 32): never hardcode an absolute checkout path -- it
+    only works on the machine that built the lab.
+    """
+    env = __import__("os").environ.get("PKT_TOOLKIT")
+    if env:
+        return Path(env)
+    for cand in Path(__file__).resolve().parent.parents:
+        if (cand / "tools" / "lab_api.py").is_file() and (cand / "src" / "pkt_core").is_dir():
+            return cand
+    raise SystemExit("error: cannot find the pkt-core toolkit; set PKT_TOOLKIT")
+
+
+TK = _find_toolkit()
 sys.path.insert(0, str(TK))
 import pt9                                    # noqa: E402
 import xml.etree.ElementTree as ET            # noqa: E402
