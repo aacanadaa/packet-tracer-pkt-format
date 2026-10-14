@@ -9,9 +9,10 @@ generated entirely from code.
 | **Deliverable** | `out/JASDF_AEWC_JADGE.pkt` — 290 devices, 326 links, 1.13 MB |
 | **Profiles** | `smoke` (134) · `standard` · `enterprise` (290) |
 | **Routing** | OSPF multi-area (area 0 backbone + per-site stub areas), iBGP AS65001, eBGP AS65002 |
-| **Configuration** | 205 devices carry a full IOS/ASA running-config — 22,579 lines |
-| **Services** | 496 DNS A-records · 259 DHCP pools · 202 RADIUS clients · NTP · syslog · SNMPv2c · TFTP · HTTPS · PKI · NetFlow |
-| **Verified** | byte-exact container round-trip, every cabled port attested, **opens in Packet Tracer 9.0.1 with no load errors** |
+| **Configuration** | 205 devices carry a full IOS/ASA running-config — 22,827 `<LINE>` elements, of which 22,579 are on the 143 devices that also carry a `STARTUPCONFIG` |
+| **Services** | 496 DNS records (248 zones × 2 servers) · 131 DHCP pools · 139 RADIUS clients · NTP · syslog · SNMPv2c · TFTP · HTTPS · PKI · NetFlow |
+| **Verified** | byte-exact container round-trip, every cabled port attested, every printed count proven distinct, **opens in Packet Tracer 9.0.1 with no load errors** |
+| **Reproducible** | `./run_all.sh enterprise` rebuilds `out/JASDF_AEWC_JADGE.pkt` byte-for-byte — the build contains no randomness |
 
 ![Verified in Packet Tracer 9.0.1](docs/img/packet_tracer_verified.png)
 

@@ -268,10 +268,10 @@ live when the file is opened — not documentation.
 | Server | Address | Service actually configured |
 | --- | --- | --- |
 | `DNS-SVR`, `DNS-SVR-02` | `10.11.60.17/.18` | authoritative forward zone (248 A-records) |
-| `DHCP-SVR` | `10.11.60.19` | 259 pools across every site VLAN and airframe |
+| `DHCP-SVR` | `10.11.60.19` | 131 pools across every site VLAN and airframe |
 | `NTP-SVR` | `10.11.60.14` | stratum-2 NTP with MD5 key 1 |
 | `SYSLOG-SVR` | `10.11.60.15` | syslog collection |
-| `AAA-SVR` | `10.11.60.16` | RADIUS (auth port 1645) + TACACS+, 202 clients |
+| `AAA-SVR` | `10.11.60.16` | RADIUS (auth port 1645) + TACACS+, 139 clients |
 | `TFTP-SVR` | `10.11.60.28` | FTP/TFTP account for config archive |
 | `MISSION-WEB-SVR` | `10.11.60.29` | HTTP + HTTPS mission portal |
 | `MAIL-SVR` | `10.11.60.30` | SMTP/POP3 relay for `jasdf.mod.go.jp` |
@@ -335,14 +335,15 @@ Each airframe is a self-contained routed domain:
 | Devices | 290 |
 | Links | 326 (290 copper, 36 serial bearers) |
 | Devices carrying a running-config | 205 |
-| Total configuration lines | 22,579 |
+| `<LINE>` elements in those blocks | 22,827 |
+| Configuration lines on IOS/ASA devices | 22,579 across the 143 devices that carry a `STARTUPCONFIG` |
 | Longest configuration | 250 lines (`JADGE-BB-SW-01`) |
 | Distinct device models | 14 |
 | Addressed interfaces | 622 |
 | Subnets | 335 |
-| DNS A-records | 496 (248 names × 2 servers) |
-| DHCP pools | 259 |
-| RADIUS clients | 202 |
+| DNS records | 496 (248 names × 2 servers) |
+| DHCP pools | 131 |
+| RADIUS clients | 139 |
 | VLANs defined | 10 |
 | WLANs | 26 |
 | Serial DCE ports clocked | 66 |

@@ -1168,7 +1168,7 @@ def find_icon_candidates(screen: Screen, shot: Path, canvas: Canvas,
     return points[:limit]
 
 
-def calibrate_view(pt: PacketTracer, xdo: Xdo, canvas: Canvas,
+def calibrate_view(pt: PacketTracer, xdo: Xdo, screen: Screen, canvas: Canvas,
                    devices: Sequence[DeviceInfo], main: int,
                    *, cols: int = 4, rows: int = 3,
                    max_hits: int = 4) -> Calibration:
@@ -1194,24 +1194,24 @@ def calibrate_view(pt: PacketTracer, xdo: Xdo, canvas: Canvas,
                    canvas.y + int(canvas.h * (iy + 0.5) / rows))
                   for iy in range(rows) for ix in range(cols)]
     for px, py in probes:
-            if len(points) >= max_hits:
-                break
-            before = {w for w, _ in pt.other_windows(main)}
-            xdo.click(px, py, repeat=2)
-            time.sleep(2.5)
-            fresh = [(w, n) for w, n in pt.other_windows(main) if w not in before]
-            if not fresh:
-                continue
-            wid, name = fresh[-1]
-            dev = by_name.get(name)
-            if dev is None:
-                continue
-            xs.append((dev.x, float(px)))
-            ys.append((dev.y, float(py)))
-            points.append({"device": name, "canvas": [dev.x, dev.y],
-                           "screen": [px, py], "window": wid})
-            print(f"  calibration: {name} canvas=({dev.x:.0f},{dev.y:.0f}) "
-                  f"-> screen=({px},{py})")
+        if len(points) >= max_hits:
+            break
+        before = {w for w, _ in pt.other_windows(main)}
+        xdo.click(px, py, repeat=2)
+        time.sleep(2.5)
+        fresh = [(w, n) for w, n in pt.other_windows(main) if w not in before]
+        if not fresh:
+            continue
+        wid, name = fresh[-1]
+        dev = by_name.get(name)
+        if dev is None:
+            continue
+        xs.append((dev.x, float(px)))
+        ys.append((dev.y, float(py)))
+        points.append({"device": name, "canvas": [dev.x, dev.y],
+                       "screen": [px, py], "window": wid})
+        print(f"  calibration: {name} canvas=({dev.x:.0f},{dev.y:.0f}) "
+              f"-> screen=({px},{py})")
     if len(points) < 2:
         raise StageFailure(
             "calibrate", "calibration-failed",
@@ -1808,7 +1808,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if plans:
                 try:
                     cal = calibrate_view(
-                        pt, xdo, canvas, devices, session.window,
+                        pt, xdo, screen, canvas, devices, session.window,
                         cols=args.calibration_cols, rows=args.calibration_rows,
                         max_hits=args.calibration_hits)
                     ev.packet_tracer["calibration"] = cal.as_dict()
