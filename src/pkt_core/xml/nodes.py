@@ -135,6 +135,11 @@ class XmlElement:
         self.children.append(child)
         self._dirty = True
 
+    def remove(self, child: "XmlNode") -> None:
+        """Detach a direct child, marking this element for re-serialisation."""
+        self.children.remove(child)
+        self._dirty = True
+
     # -- serialization ----------------------------------------------------
     def to_bytes(self) -> bytes:
         """Emit this element.

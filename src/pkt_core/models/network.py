@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Literal, TypeAlias
 
 from pkt_core.models.base import PktNode
 from pkt_core.models.schema import (
@@ -11,9 +11,26 @@ from pkt_core.models.schema import (
     PortConfig,
     WirelessConfig,
 )
+from pkt_core.models.services import DeviceServices
 from pkt_core.xml.nodes import XmlElement, XmlText
 
-__all__ = ["Port", "Module", "Workspace", "Device", "Cable", "Link"]
+__all__ = ["Port", "Module", "Workspace", "Device", "Cable", "Link", "PowerState"]
+
+
+PowerState: TypeAlias = Literal["true", "false", "absent"]
+"""The three ``<ENGINE><POWER>`` states seen in real Packet Tracer documents.
+
+Corpus semantics (5,819 devices across 443 decodable saves):
+
+* ``"true"``  -- powered on: the state of every working device. All 28 device
+  kinds carry the element (PCs, servers, MCU/IoT components and access points
+  included), so no kind is exempt.
+* ``"false"`` -- powered off, used for deliberately staged-off gear.
+* ``"absent"`` -- the element is missing (or empty). Packet Tracer never omits
+  ``<POWER>`` (0 of 5,819 corpus devices), so absence is a generator artefact
+  with no author-defined meaning; PT's behaviour on it is unverified. Treat it
+  as unsupported rather than as "on".
+"""
 
 
 class Port(PktNode):
@@ -240,9 +257,36 @@ class Device(PktNode):
         self._el._dirty = True
 
     @property
-    def powered(self) -> bool:
+    def power_state(self) -> PowerState:
+        """The raw ``<ENGINE><POWER>`` state: ``"true"``, ``"false"`` or ``"absent"``.
+
+        The three states are semantically distinct (see :data:`PowerState`):
+        ``"false"`` is a deliberate power-off, while ``"absent"`` means the
+        element is missing or empty and is a generator artefact Packet Tracer
+        itself never writes.  Any other text is reported as ``"false"``, which
+        is how Packet Tracer and :attr:`powered` treat it.
+
+        This is the device-level element only; per-port ``<PORT><POWER>`` is a
+        different field with its own semantics (unused ports legitimately ship
+        ``false``/absent) and is exposed via :class:`Port`.
+        """
         node = self._engine().find("POWER")
-        return node is not None and node.text.strip().lower() == "true"
+        if node is None or node.text is None:
+            return "absent"
+        text = node.text.strip()
+        if not text:
+            return "absent"
+        return "true" if text.lower() == "true" else "false"
+
+    @property
+    def powered(self) -> bool:
+        """Whether the device is powered on.
+
+        Reads exactly ``power_state == "true"``: ``"false"`` **and** ``"absent"``
+        both count as off.  Use :attr:`power_state` when the two off-states must
+        be distinguished.
+        """
+        return self.power_state == "true"
 
     @property
     def description(self) -> str:
@@ -283,6 +327,12 @@ class Device(PktNode):
         """Inventory metadata: sys contact/location, serial, physical coords."""
         node = self.engine
         return DeviceDetails.from_element(node) if node is not None else None
+
+    @property
+    def services(self) -> DeviceServices | None:
+        """Service record lists (AAA clients, DHCP pools, DNS records, ...)."""
+        node = self.engine
+        return DeviceServices.from_element(node) if node is not None else None
 
     @property
     def port_configs(self) -> list[PortConfig]:

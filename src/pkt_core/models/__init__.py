@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pkt_core.models.base import PktNode, unknown_children
 from pkt_core.models.lab import Cluster, Lab, LabOptions, Network, RunningConfig
-from pkt_core.models.network import Cable, Device, Link, Module, Port, Workspace
+from pkt_core.models.network import Cable, Device, Link, Module, Port, PowerState, Workspace
 from pkt_core.models.schema import (
     ActivitySection,
     CanvasShape,
@@ -28,6 +28,14 @@ from pkt_core.models.schema import (
     PortConfig,
     ScoringNode,
     WirelessConfig,
+)
+from pkt_core.models.services import (
+    AaaClient,
+    AaaUser,
+    DeviceServices,
+    DhcpPool,
+    DnsRecord,
+    FtpAccount,
 )
 
 __all__ = [
@@ -39,6 +47,7 @@ __all__ = [
     "Device",
     "Cable",
     "Link",
+    "PowerState",
     "RunningConfig",
     "Cluster",
     "LabOptions",
@@ -52,4 +61,10 @@ __all__ = [
     "EnvironmentOption",
     "CanvasShape",
     "ActivitySection",
+    "AaaClient",
+    "AaaUser",
+    "DhcpPool",
+    "DnsRecord",
+    "FtpAccount",
+    "DeviceServices",
 ]

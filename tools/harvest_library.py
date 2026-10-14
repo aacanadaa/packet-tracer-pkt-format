@@ -28,6 +28,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 import pt9       # noqa: E402
 import scoring   # noqa: E402
+import lab_api   # noqa: E402
 
 
 def _files(paths):
@@ -46,7 +47,18 @@ def _dec(path):
 
 
 def harvest_models(files):
-    models, modules = {}, {}
+    """Harvest one <DEVICE> block per model, plus one <SLOT> block per module.
+
+    Device-level <ENGINE><POWER> is normalised to "true" on the way in (see
+    lab_api.normalise_device_power): the donor save is just whichever save
+    happened to be on disk, so its per-device power state is not part of a model
+    definition -- a single off donor poisoned every 3650-24PS in the JASDF-AEWC
+    model (docs/POWER_INVESTIGATION.md).  Returns (models, modules,
+    power_normalised), where power_normalised lists the models whose donor block
+    was off/absent ("was off in donor save") and is recorded in the output JSON
+    so the artefact cannot silently recur.
+    """
+    models, modules, off = {}, {}, []
     for f in files:
         try:
             xml = _dec(f)
@@ -56,7 +68,11 @@ def harvest_models(files):
             blk = m.group(0)
             mm = re.search(rb'<TYPE[^>]*model="([^"]*)"', blk)
             if mm and mm.group(1).decode() not in models:
-                models[mm.group(1).decode()] = blk
+                model = mm.group(1).decode()
+                blk, was_off = lab_api.normalise_device_power(blk)
+                if was_off:
+                    off.append(model)
+                models[model] = blk
         txt = xml.decode("utf-8", "replace")
         for mm in re.finditer(r"<MODEL>([^<]+)</MODEL>", txt):
             name = mm.group(1)
@@ -67,7 +83,7 @@ def harvest_models(files):
             b = txt.find("</SLOT>", i) + len("</SLOT>")
             if a >= 0 and b > a and len(txt[a:b]) < 20000:
                 modules[name] = txt[a:b].encode()
-    return models, modules
+    return models, modules, off
 
 
 def harvest_shapes(files):
@@ -95,15 +111,19 @@ def main():
     a = ap.parse_args()
 
     files = _files(a.saves + a.activities)
-    models, modules = harvest_models(files)
+    models, modules, off = harvest_models(files)
     shapes = harvest_shapes(_files(a.saves + a.activities))
     json.dump({"gz": True,
                "models": {k: _gz_b64(v) for k, v in models.items()},
-               "modules": {k: _gz_b64(v) for k, v in modules.items()}},
+               "modules": {k: _gz_b64(v) for k, v in modules.items()},
+               "power_normalised": off},
               open(a.out_models, "w"))
     scoring.save_shapes(shapes, a.out_shapes)
     print(f"models={len(models)} modules={len(modules)} shapes={len(shapes['models'])} "
           f"-> {a.out_models} ({os.path.getsize(a.out_models)} B), {a.out_shapes}")
+    if off:
+        print("device <ENGINE><POWER> normalised to true (was off in donor save): "
+              + ", ".join(off))
 
 
 if __name__ == "__main__":

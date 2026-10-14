@@ -30,11 +30,12 @@ from pkt_core import (
     encode_bytes,
     root_tag,
 )
+from pkt_core.audit import TemplateLeftovers, validate_lab
 from pkt_core.diff import diff_labs
 from pkt_core.export import EXPORTERS, export
 from pkt_core.models import Lab, RunningConfig
 
-__all__ = ["main", "cmd_info", "cmd_unpack", "cmd_pack", "cmd_diff", "cmd_export"]
+__all__ = ["main", "cmd_info", "cmd_unpack", "cmd_pack", "cmd_diff", "cmd_export", "cmd_audit"]
 
 _PROG = "pkt"
 
@@ -261,6 +262,38 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# pkt audit
+# --------------------------------------------------------------------------
+def cmd_audit(args: argparse.Namespace) -> int:
+    """Report service counts and prove every counted item distinct.
+
+    This is the documented command behind the published service figures: it
+    prints raw *and* distinct counts per family, flags template leftovers and
+    fails (exit 1) on any duplicate.  ``--templates`` classifies records a
+    harvested device template carried (never authored) as leftovers.
+    """
+    container = _load(args.file)
+    lab = Lab.from_bytes(container.xml)
+    leftovers = (
+        TemplateLeftovers.from_device_templates_json(args.templates)
+        if args.templates is not None
+        else None
+    )
+    report = validate_lab(lab, leftovers=leftovers)
+    if args.json:
+        payload = report.inventory.as_dict()
+        payload["findings"] = [
+            {"severity": f.severity, "code": f.code, "message": f.message}
+            for f in report.findings
+        ]
+        payload["ok"] = report.ok
+        print(json.dumps(payload, indent=2))
+    else:
+        print(report.summary())
+    return 0 if report.ok else 1
+
+
+# --------------------------------------------------------------------------
 # CLI wiring
 # --------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
@@ -321,6 +354,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-u", "--unified", action="store_true", help="emit a unified XML diff")
     p.add_argument("-C", "--context", type=int, default=3)
     p.set_defaults(func=cmd_diff)
+
+    p = sub.add_parser(
+        "audit",
+        help="count services and prove each counted item distinct",
+    )
+    p.add_argument("file", type=Path)
+    p.add_argument(
+        "--templates",
+        type=Path,
+        default=None,
+        help="device_templates.json: classify template-carried records as leftovers",
+    )
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.set_defaults(func=cmd_audit)
 
     return ap
 
