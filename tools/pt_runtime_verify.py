@@ -1231,7 +1231,65 @@ def close_window(xdo: Xdo, wid: int) -> None:
         pass
 
 
+def scroll_to_device(sb: "Scrollbars", screen: Screen, canvas: Canvas,
+                     calib: Calibration, dev: DeviceInfo,
+                     workspace: tuple[float, float]) -> Calibration:
+    """Scroll the logical workspace so *dev* is on screen, and re-derive the map.
+
+    A scrollbar maps linearly onto the scrollable range, so once the mapping is
+    known at one scroll position the offset at any other position follows
+    analytically -- no second calibration pass is needed.
+    """
+    wx, wy = workspace
+    span_x = max(0.0, wx - canvas.w)
+    span_y = max(0.0, wy - canvas.h)
+    fx = 0.0 if span_x <= 0 else max(0.0, min(1.0, (dev.x - canvas.w / 2) / span_x))
+    fy = 0.0 if span_y <= 0 else max(0.0, min(1.0, (dev.y - canvas.h / 2) / span_y))
+    shot = screen.capture("03_scroll_to_device.png")
+    sb.scroll_to(shot, canvas, fx, fy)
+    time.sleep(1.2)
+    return Calibration(scale_x=calib.scale_x, off_x=canvas.x - fx * span_x,
+                       scale_y=calib.scale_y, off_y=canvas.y - fy * span_y,
+                       points=calib.points)
+
+
 def open_device_window(pt: PacketTracer, xdo: Xdo, calib: Calibration,
+                       dev: DeviceInfo, main: int,
+                       timeout: float = 10.0) -> int:
+    """Double-click a device icon and return its window id.
+
+    The analytic screen position can be a few pixels out after scrolling, so a
+    small spiral of offsets around it is tried before giving up.
+    """
+    px, py = calib.to_screen(dev.x, dev.y)
+    offsets = [(0, 0), (0, -18), (0, 18), (-18, 0), (18, 0), (-18, -18), (18, 18)]
+    for dx, dy in offsets:
+        wid = _try_click(pt, xdo, main, dev.name, px + dx, py + dy, timeout)
+        if wid is not None:
+            return wid
+    raise StageFailure("traffic", "device-window-not-opened",
+                       f"{dev.name}: double-clicked near ({px},{py}) with "
+                       f"{len(offsets)} offsets but no window titled "
+                       f"'{dev.name}' appeared")
+
+
+def _try_click(pt: PacketTracer, xdo: Xdo, main: int, name: str,
+               px: int, py: int, timeout: float) -> int | None:
+    before = {w for w, _ in pt.other_windows(main)}
+    xdo.click(px, py, repeat=2)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for wid, wname in pt.other_windows(main):
+            if wid not in before and wname == name:
+                return wid
+        time.sleep(0.4)
+    for wid, wname in pt.other_windows(main):
+        if wname == name:
+            return wid
+    return None
+
+
+def _unused_open_device_window(pt: PacketTracer, xdo: Xdo, calib: Calibration,
                        dev: DeviceInfo, main: int,
                        timeout: float = 12.0) -> int:
     """Double-click a device icon and return its window id."""
@@ -1833,6 +1891,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                             continue
                         print(f"ping {i + 1}/{len(plans)}: {plan['command']} "
                               f"from {src.name}")
+                        cal = scroll_to_device(
+                            sb, screen, canvas, cal, src,
+                            (max(d.x for d in devices) + 200.0,
+                             max(d.y for d in devices) + 200.0))
                         out = drive_ping(
                             pt, xdo, screen, cal, src, session.window,
                             plan["command"], shots_dir,

@@ -756,10 +756,17 @@ The unused `loop` placeholder comprehension is gone.
 * **24 (no end-to-end traffic).** Still the honest limit: the model is verified
   as *loadable and structurally sound*, and now also *rendered and powered* in
   real Packet Tracer 9.0.1, but not as *functionally routed*.
-* **25 (only the airborne tier inspected).** No longer true: the file has been
-  loaded in Packet Tracer 9.0.1 and swept across the whole workspace, with the
-  layout gate (0 label overlaps, 0 off-page) covering all 290 devices
-  analytically.
+* **25 (only the airborne tier inspected).** Addressed from two directions.
+  Analytically, the layout gate now covers **all 290** devices rather than one
+  tier: it reports 0 overlapping label boxes, 0 devices off-page and 0
+  coincident pairs across the whole canvas, so the specific failure this problem
+  warned about ("overlapping icons would not have been noticed") is now a
+  build-time check rather than something a screenshot has to catch. Visually,
+  the file has been loaded in Packet Tracer 9.0.1 and the physical rack and the
+  logical topology confirmed to render with all devices powered — see
+  `PACKET_TRACER_VALIDATION.md`. A tier-by-tier photographic sweep of the
+  logical canvas remains the one thing not done; `tools/pt_runtime_verify.py`
+  automates it.
 * **26 (only PT 9.0.1 tested).** Still true, and now stated correctly. PT 9.0.1
   runs headless under Xvfb (`xvfb-run -a /usr/local/bin/packettracer file.pkt`)
   after a one-time account sign-in; PT 7.3.1 is no longer installed here. The

@@ -105,7 +105,9 @@ persisted under `~/.local/.packettracer/` (e.g.
 `eula-Cisco_Packet_Tracer_9.0.1`), Packet Tracer starts **straight to the
 workspace with no network access at all**. The earlier note that the visual
 check "is not completable against PT 9.x from this environment" was wrong, and
-the 290-device JASDF model has since been verified this way end to end:
+the 290-device JASDF model has since been re-verified this way — load, render
+and power state, though not yet end-to-end traffic (see problem 24 in
+`ENTERPRISE_PROBLEMS.md`):
 
 ```console
 $ xvfb-run -a /usr/local/bin/packettracer /tmp/verify/ent.pkt
