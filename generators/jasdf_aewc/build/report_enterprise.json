@@ -1,0 +1,49 @@
+{
+ "profile": "enterprise",
+ "devices": 290,
+ "links": 326,
+ "routed_ports": 162,
+ "dns_records": 248,
+ "wlans": 26,
+ "by_model": {
+  "Server-PT": 64,
+  "PC-PT": 55,
+  "2960-24TT": 31,
+  "2911": 26,
+  "AccessPoint-PT": 26,
+  "IR1101": 16,
+  "IE-9320": 16,
+  "ISR4331": 15,
+  "3560-24PS": 15,
+  "3650-24PS": 10,
+  "ISR4321": 10,
+  "5505": 4,
+  "CyberObserver": 1,
+  "Sniffer": 1
+ },
+ "seed_removed": [
+  "Server",
+  "Power Distribution Device0",
+  "PC-B",
+  "PC-A",
+  "SW1",
+  "R2",
+  "R1"
+ ],
+ "serial_ports_clocked": 66,
+ "stale_nic_fields_cleared": 170,
+ "template_leftovers_removed": 444,
+ "template_leftovers_detail": {
+  "aaa-clients": 63,
+  "aaa-users": 63,
+  "dhcp-pools": 128,
+  "ftp-accounts": 62,
+  "dhcp-port-bindings": 128
+ },
+ "ports_switched_on_by_repair": 178,
+ "devices_switched_on_by_repair": 0,
+ "devices_with_power_true": 290,
+ "output": "out/JASDF_AEWC_JADGE.pkt",
+ "size_bytes": 1134251,
+ "sha256": "e7945dac0a4b2c390c5e25360775e0a1bf6985f2f5585a10d175b8ef650a84de"
+}
