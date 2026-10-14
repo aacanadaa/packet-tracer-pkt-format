@@ -273,6 +273,20 @@ information. The same bug class produced leftover service records (Rule 4).
 `normalise_device_power()` to repair an existing file in place, and
 `tools/device_templates.json` records `"power_normalised": ["3650-24PS"]`.
 
+**But power has two levels, and only the device level is inherited for you.**
+`<ENGINE><POWER>` is the device's on/off switch; `<PORT><POWER>` is the
+interface's. `normalise_device_power()` deliberately rewrites *only* the engine
+element — `<PORT><POWER>` is left exactly as harvested (problem 9). That is
+correct, because port power is a statement about **your** cabling, not the
+donor's state: a port you cabled is by definition powered.
+
+So a harvested template whose ports ship off produces dead links on a device
+that is itself switched on. `AccessPoint-PT` is the real case: it carries
+`<POWER>false</POWER>` on its ports, so every WLAN link rendered down until the
+generator raised `POWER` on each cabled port (`ports_powered_on: 178`). If you
+cable a port, set its `POWER` to true — and note that `<PORT><POWER>` sits after
+`<TYPE>`, so a regex written for the engine-level element will silently miss it.
+
 ### Rule 2 — compute coordinates; never place a device by hand
 
 Coordinates were passed in by the caller with no collision detection, so devices
@@ -589,6 +603,24 @@ breaks a correct lab. Each is recorded with its probe in `docs/ENTERPRISE_PROBLE
   workspace tree as well as at `ENGINE/NAME` (problem 30), so a naive "find every NAME and
   check uniqueness" sweep reports collisions that are not real. Resolve names at
   `ENGINE/NAME`.
+
+- **An empty sanitiser report.** This one is not Packet Tracer's fault, and it is the most
+  dangerous entry here because it looks like success. `audit._engine_views()` resolves a
+  *direct child* named `ENGINE`, so it returns `[]` for anything else — **including a
+  whole-document root** — and `sanitize_template_leftovers(root)` then returns an empty
+  report that reads exactly like "nothing to clean" while removing nothing (problem 33).
+  Measured on the shipped lab, whose root tag is `PACKETTRACER5`:
+
+  ```
+  _engine_views(root)   -> 0 engine(s)     <- silent no-op
+  _engine_views(DEVICE) -> 1 engine(s)
+  but the document holds 290 DEVICE elements
+  ```
+
+  Callers must pass `DEVICE` elements. More generally: when a cleaning or checking helper
+  reports "no findings", confirm it examined something before you believe it — pass a target
+  that *should* produce findings, or assert how many things it looked at. An empty result
+  and an empty scope are indistinguishable from the outside.
 
 Corollary: a gate that fails is not automatically a defect in your lab, and a gate that
 passes is not proof of correctness. Check *which* gate and *what* it actually measured
