@@ -169,8 +169,8 @@ it was sanitised:
 ```console
 $ pkt audit JASDF_AEWC_JADGE.pkt --templates tools/device_templates.json
 device_names: 290 raw, 290 distinct
-config lines  : min=78 median=143 max=250 total=22,579 (143 IOS devices with
-                STARTUPCONFIG); 22,827 <LINE> elements in 205 RUNNINGCONFIG blocks
+config lines  : min=78 median=143 max=250 total=22,648 (143 IOS/ASA devices,
+                by model); 22,896 <LINE> elements in 205 RUNNINGCONFIG blocks
 services      : 496 DNS records (248 distinct x 2 servers)
   aaa_clients: 202 raw, 140 distinct, 62 duplicate instances
                (e.g. 192.168.10.1 x63), 63 template leftovers -> 139 authored
@@ -184,11 +184,14 @@ services      : 496 DNS records (248 distinct x 2 servers)
 RESULT: FAILED (15 failures, 0 warnings)
 ```
 
-Note the config-line row: it prints **both** figures, because "22,579" and
-"22,827" were both correct under different counting methods (IOS devices that
-carry a running config, versus raw `<LINE>` elements in all 205 blocks). The
-earlier documentation published one number without its method, which made it
-unreproducible; the audit prints the method with the figure.
+Note the config-line row: it prints **both** figures, with the method for each
+(IOS/ASA devices selected by model, versus raw `<LINE>` elements in all 205
+blocks). The earlier documentation published one number without its method,
+which made it unreproducible. The numbers have since moved once — from
+22,579/22,827 to 22,648/22,896 — when a device that was shipping a harvested
+template's factory-default config was found and properly configured. That is
+the point of printing the method: the figure is checkable, so it can be seen
+to change for a reason.
 
 The rule this encodes, and which the library now follows everywhere: **if a
 validator prints a count, it must prove those items are distinct.**

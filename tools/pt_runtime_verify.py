@@ -796,21 +796,52 @@ class Scrollbars:
     def thumb_span(self, shot: Path, canvas: Canvas, horizontal: bool) -> tuple[int, int, int]:
         return self._thumb(shot, horizontal=horizontal, canvas=canvas)
 
+    # Dragging the scrollbar thumbs was measured *not* to move the workspace on
+    # a bare Xvfb display (no window manager, so the toolkit's scrollbar
+    # hit-testing is unreliable).  The mouse wheel does move it, so scrolling is
+    # done incrementally: rewind to the origin, then advance by a known number
+    # of wheel clicks.
+    WHEEL_CLICKS_FULL_TRAVEL = 40
+
+    def _wheel(self, canvas: Canvas, clicks: int, *, horizontal: bool) -> None:
+        if clicks == 0:
+            return
+        self.xdo("mousemove", str(canvas.x + canvas.w // 2),
+                 str(canvas.y + canvas.h // 2))
+        time.sleep(0.2)
+        button = "4" if horizontal else "5"   # 4 = left/up, 5 = right/down
+        if clicks < 0:
+            button = "6" if horizontal else "4"   # 6/7 are horizontal on X11
+            clicks = -clicks
+        if clicks:
+            self.xdo("click", "--repeat", str(clicks), "--delay", "60", button,
+                     timeout=120)
+        time.sleep(0.4)
+
     def scroll_to(self, shot: Path, canvas: Canvas, fx: float, fy: float) -> None:
-        """Drag both scrollbar thumbs to the given 0..1 fractions."""
-        for horizontal, frac in ((True, fx), (False, fy)):
-            s, e, cross = self._thumb(shot, horizontal=horizontal, canvas=canvas)
-            target = int(s + (e - s) * 0.0)  # grab near the thumb's leading edge
-            span_start = canvas.x if horizontal else canvas.y
-            span_len = canvas.w if horizontal else canvas.h
-            size = e - s
-            new_start = span_start + int((span_len - size) * max(0.0, min(1.0, frac)))
-            grab = target
-            if horizontal:
-                self.xdo.drag(grab, cross, new_start + size // 2, cross)
-            else:
-                self.xdo.drag(cross, grab, cross, new_start + size // 2)
-            time.sleep(0.5)
+        """Move the logical view to the given 0..1 fractions of the workspace."""
+        n = self.WHEEL_CLICKS_FULL_TRAVEL
+        self._wheel(canvas, -n, horizontal=False)     # rewind vertically
+        self._scroll_horizontal(canvas, -n)
+        self._wheel(canvas, int(round(max(0.0, min(1.0, fy)) * n)), horizontal=False)
+        self._scroll_horizontal(canvas, int(round(max(0.0, min(1.0, fx)) * n)))
+        time.sleep(0.6)
+
+    def _scroll_horizontal(self, canvas: Canvas, clicks: int) -> None:
+        """Shift+wheel scrolls the PT workspace horizontally."""
+        if clicks == 0:
+            return
+        self.xdo("mousemove", str(canvas.x + canvas.w // 2),
+                 str(canvas.y + canvas.h // 2))
+        time.sleep(0.2)
+        self.xdo("keydown", "shift")
+        try:
+            button = "4" if clicks < 0 else "5"
+            self.xdo("click", "--repeat", str(abs(clicks)), "--delay", "60", button,
+                     timeout=120)
+        finally:
+            self.xdo("keyup", "shift")
+        time.sleep(0.4)
 
 
 # --- link-light colour classification ------------------------------------- #

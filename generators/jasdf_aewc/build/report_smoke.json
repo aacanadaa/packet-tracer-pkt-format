@@ -39,10 +39,11 @@
   "ftp-accounts": 37,
   "dhcp-port-bindings": 78
  },
+ "startup_config_lines_cleared": 584,
  "ports_switched_on_by_repair": 100,
  "devices_switched_on_by_repair": 0,
  "devices_with_power_true": 134,
  "output": "out/JASDF_AEWC_JADGE_smoke.pkt",
- "size_bytes": 620830,
- "sha256": "b1a40ca839da527cee5a09b6d5916bab2ada5a6beb55f489342fbbda579f1237"
+ "size_bytes": 618311,
+ "sha256": "38e898562dc1cff0e10dcffdb5526fdbb862d3174926752e59be6341e2d82e20"
 }

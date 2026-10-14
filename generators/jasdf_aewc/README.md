@@ -9,7 +9,7 @@ generated entirely from code.
 | **Deliverable** | `out/JASDF_AEWC_JADGE.pkt` — 290 devices, 326 links, 1.13 MB |
 | **Profiles** | `smoke` (134) · `standard` · `enterprise` (290) |
 | **Routing** | OSPF multi-area (area 0 backbone + per-site stub areas), iBGP AS65001, eBGP AS65002 |
-| **Configuration** | 205 devices carry a full IOS/ASA running-config — 22,827 `<LINE>` elements, of which 22,579 are on the 143 devices that also carry a `STARTUPCONFIG` |
+| **Configuration** | 205 devices carry a full IOS/ASA running-config — 22,896 `<LINE>` elements, of which 22,648 are on the 143 IOS/ASA devices (selected by model, not by the presence of a `<STARTUPCONFIG>` element) |
 | **Services** | 496 DNS records (248 zones × 2 servers) · 131 DHCP pools · 139 RADIUS clients · NTP · syslog · SNMPv2c · TFTP · HTTPS · PKI · NetFlow |
 | **Verified** | byte-exact container round-trip, every cabled port attested, every printed count proven distinct, **opens in Packet Tracer 9.0.1 with no load errors** |
 | **Reproducible** | `./run_all.sh enterprise` rebuilds `out/JASDF_AEWC_JADGE.pkt` byte-for-byte — the build contains no randomness |
@@ -116,9 +116,52 @@ $ python build_jasdf_aewc.py --profile enterprise # 290 devices (default)
 
 ---
 
+## Credentials
+
+Worth knowing before you open the file, because one half is readable and the
+other half is not.
+
+**Readable in the artefact** — these were never hidden:
+
+| What | Value |
+| --- | --- |
+| RADIUS shared key | `r4d1us-J4DG3-k3y` |
+| SNMP read-only community | `JASDF-RO-9f3c` |
+| SNMP read-write community | `JASDF-RW-1a7e` |
+| HSRP authentication | `JASDF-HSRP` |
+| Web portal login | `jasdf-web` / `W3b-P0rt4l` |
+
+**Not recoverable from the artefact.** Every IOS/ASA device carries:
+
+```
+enable secret 5 $1$Jz8k$QbV3nR7dTpWmYc2LxH9uK1
+username jasdf-admin privilege 15 secret 5 $1$Kp2s$Rt5Yh8Nq4WzXc6BmL3vJd0
+```
+
+Those are Cisco **type-5** (MD5-crypt) hashes. The plaintext was chosen when the
+generator was written and was never recorded, so it cannot be recovered from the
+delivered file — and 138 of the 143 devices run `aaa new-model` with
+`aaa authentication login default group radius local`, which means their CLI tab
+asks for a login.
+
+**So you cannot log into a router in this lab from the artefact alone.** If you
+want CLI access, either use Packet Tracer's **Config** tab (which needs no
+authentication) and set a secret you know, or rebuild with your own credentials
+by editing `ENABLE_SECRET` / `ADMIN_SECRET` in `jasdf_kit.py`.
+
+For contrast: an earlier build also shipped `$1$mERr$A0KmwwybwYdjSTcVdJ15p0` on
+16 routers — the type-5 hash of `cisco`, the publicly known default. That was not
+authored; it was a harvested template's factory-default startup config, and it
+has been removed.
+
+---
+
 ## Licence
 
-The generator in this repository is released under PolyForm Noncommercial
-1.0.0, matching the toolchain it builds on. It depends on
-[packet-tracer-pkt-format](https://github.com/aacanadaa/packet-tracer-pkt-format);
-the generated `.pkt` is your own artefact.
+GNU General Public License v3.0 or later, matching the toolchain this package
+builds on — see the
+[packet-tracer-pkt-format](https://github.com/aacanadaa/packet-tracer-pkt-format)
+repository. The generated `.pkt` is your own artefact.
+
+Earlier releases of this package were distributed under PolyForm Noncommercial
+1.0.0. That applied to those releases only.

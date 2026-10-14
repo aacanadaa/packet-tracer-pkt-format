@@ -169,13 +169,13 @@ deliberate — silently renaming hides authoring bugs. Either:
 `lab.device_names()` lists what is taken. Note: device `<NAME>` lives under
 `<ENGINE>`, not as a direct child of `<DEVICE>`.
 
-## Authoring at scale — five rules, learned by shipping a broken 290-device lab
+## Authoring at scale — six rules, learned by shipping a broken 290-device lab
 
 A 290-device enterprise model was generated, structurally validated, and shipped
 with `RESULT: PASSED (0 warnings)` — and it was still wrong. The validator was
-checking *presence*, never *uniqueness*; nothing checked position or power at
-all; and the headline figures could not be reproduced from the file. These five
-rules are the generalisation. They are not style advice — each one corresponds to
+checking *presence*, never *uniqueness* or *authorship*; nothing checked position
+or power at all; and the headline figures could not be reproduced from the file.
+These six rules are the generalisation. They are not style advice — each one corresponds to
 a defect that reached a delivered file.
 
 All five are now repaired in the delivered file, and the repair is gated:
@@ -377,9 +377,66 @@ the same project. The block count (205) agreed exactly, so this was a
 counting-method difference rather than data loss — but a published number that
 cannot be reproduced by the obvious method is worse than no number.
 
-**State the method alongside the figure** (`22,827 <LINE> elements across 205
-RUNNINGCONFIG blocks`), and make the validator recompute it from the artefact
-rather than from the generator's internal bookkeeping.
+**State the method alongside the figure** (`22,896 <LINE>` elements across 205
+`RUNNINGCONFIG` blocks; 22,648 of them on the 143 IOS/ASA devices), and make the
+validator recompute it from the artefact rather than from the generator's
+internal bookkeeping.
+
+Two further lessons came out of this one:
+
+* **A statistic two tools derive differently is not a statistic.** The audit
+  counted IOS devices by the presence of a `<STARTUPCONFIG>` element and
+  `validate.py` counted them by model. Both said 143 — by coincidence, and for
+  opposite reasons. Give the definition one home (`NETWORK_DEVICE_MODELS`) and
+  have both key off it.
+* **When the number moves, say why.** These figures went 22,579/22,827 →
+  22,648/22,896 because an unconfigured device was found and configured. Because
+  the method is printed with the figure, the change is visible and explicable
+  instead of silent.
+
+### Rule 6 — a presence check is not an authorship check
+
+Every defect in this section shares one root cause, and it is worth stating on
+its own because it is the easiest mistake to make and the hardest to notice:
+
+> **A harvested template always supplies an answer.** "Has a value" therefore
+> passes on a device nobody configured.
+
+`validate.py` asserted that all 143 network devices "carry a config" — and a
+factory default *is* a config. So it passed while the file shipped:
+
+* 20 devices whose startup config came from another lab (`hostname Router`,
+  `hostname ciscoasa`, ASA Version 8.4(2), dated Mar 1993);
+* 16 of them carrying `enable secret 5 $1$mERr$…` — the type-5 hash of `cisco`,
+  the publicly known default — while their *running* config carried the intended
+  secret, so the file disagreed with itself about how to log in;
+* `COALITION-GW-01` completely unconfigured, while `PARTNER-RTR-01` was set up to
+  peer with its address, so the documented eBGP path could not come up.
+
+All three passed a check that only asked "is there a config?".
+
+The fix is to assert something a template default cannot satisfy. Here that is
+identity:
+
+```python
+misnamed = [devs[s] for s in netdev if f"hostname {devs[s]}" not in cfgs[s]]
+```
+
+Before → after, on the real file:
+
+```
+FAIL  1 network devices carry a config that does not name them
+      (template default or wrong device): ['COALITION-GW-01']    exit 1
+ok    config identity: all 143 configs set 'hostname <device>'
+```
+
+Where identity is not available, use **distinctness** (Rule 3) or **derivation**:
+a value the generator computed from the device's own name or address cannot be a
+leftover. Never a bare presence test.
+
+This also explains Rule 1. The template's `POWER` is an answer; writing a
+constant over it *lost* the template's authorship, and then a presence check that
+saw `POWER` at all was satisfied.
 
 ## Workflow — a full scored activity (`.pka`)
 

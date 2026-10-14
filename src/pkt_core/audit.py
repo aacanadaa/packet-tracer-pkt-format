@@ -486,6 +486,15 @@ class DedupCount:
         }
 
 
+#: Chassis models that run IOS or ASA and are expected to carry a config.
+#: Kept in step with the allow-list in ``generators/jasdf_aewc/validate.py`` so
+#: the two tools cannot report the same statistic from different definitions.
+NETWORK_DEVICE_MODELS: frozenset[str] = frozenset({
+    "2911", "ISR4331", "ISR4321", "IR1101", "3650-24PS",
+    "3560-24PS", "2960-24TT", "IE-9320", "5505",
+})
+
+
 @dataclass(frozen=True)
 class ConfigLineStats:
     """Reproducible configuration-line counts (problem 17).
@@ -494,10 +503,10 @@ class ConfigLineStats:
 
     * ``total_lines`` — every ``<RUNNINGCONFIG>`` block, including the short
       stubs some server appliances carry (``!`` / comment / ``end``).
-    * ``ios_lines`` — blocks of *IOS devices*, defined structurally as devices
-      whose ``<ENGINE>`` carries a ``<STARTUPCONFIG>`` (routers, switches,
-      ASAs).  This is the "configuration lines" figure the design documents
-      quote, and it is reproducible with ``pkt audit <file.pkt>``.
+    * ``ios_lines`` — blocks of *network devices* (routers, switches, ASAs),
+      selected by :data:`NETWORK_DEVICE_MODELS`.  This is the "configuration
+      lines" figure the design documents quote, and it is reproducible with
+      ``pkt audit <file.pkt>``.
     """
 
     blocks: int = 0
@@ -512,7 +521,7 @@ class ConfigLineStats:
         return (
             f"config lines  : min={self.min_lines} median={self.median_lines} "
             f"max={self.max_lines} total={self.ios_lines:,} "
-            f"({self.ios_blocks} IOS devices with STARTUPCONFIG); "
+            f"({self.ios_blocks} IOS/ASA devices, by model); "
             f"{self.total_lines:,} <LINE> elements in {self.blocks} RUNNINGCONFIG blocks"
         )
 
@@ -606,6 +615,21 @@ def _port_ips(dev: Device) -> list[str]:
 
 
 def _config_line_stats(devices: Sequence[Device]) -> ConfigLineStats:
+    """Split config lines into "all blocks" and "network devices".
+
+    A device counts as an IOS/ASA device by its **model**, not by whether it
+    happens to carry a `<STARTUPCONFIG>` element.  The element was the old
+    proxy and it was wrong in both directions: 123 of the 290 devices in the
+    JASDF model carried an *empty* one and were counted as configured, while
+    the only 20 with content were the ones holding factory-default residue
+    (`hostname Router`, `hostname ciscoasa`), so the figure described precisely
+    the devices that were wrong.
+
+    The allow-list matches `generators/jasdf_aewc/validate.py`, which counts the
+    same population for its "configured devices" check.  Two tools reporting the
+    same statistic from different definitions is how a number becomes
+    unfalsifiable; both now key off :data:`NETWORK_DEVICE_MODELS`.
+    """
     blocks = total = ios_blocks = ios_lines = 0
     per_ios: list[int] = []
     for dev in devices:
@@ -618,7 +642,7 @@ def _config_line_stats(devices: Sequence[Device]) -> ConfigLineStats:
         n = len(rc.find_all("LINE"))
         blocks += 1
         total += n
-        if engine.find("STARTUPCONFIG") is not None:
+        if dev.model in NETWORK_DEVICE_MODELS:
             ios_blocks += 1
             ios_lines += n
             per_ios.append(n)

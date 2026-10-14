@@ -136,7 +136,7 @@ def _doc(*devices: str) -> bytes:
 def _server(name: str, *, clients: tuple[str, ...] = (), pools: tuple[tuple[str, str, str], ...] = (),
             dns: tuple[tuple[str, str], ...] = (), users: tuple[str, ...] = (),
             ftp: tuple[str, ...] = (), ios_lines: tuple[str, ...] = (),
-            with_startup: bool = True) -> str:
+            model: str = "Server-PT") -> str:
     """A Server-PT device carrying only what the generator authored."""
     def block(tag: str, body: str) -> str:
         return f"<{tag}>{body}</{tag}>" if body else ""
@@ -168,14 +168,12 @@ def _server(name: str, *, clients: tuple[str, ...] = (), pools: tuple[tuple[str,
         "RUNNINGCONFIG",
         "".join(f"<LINE>{line}</LINE>" for line in ios_lines),
     )
-    # A STARTUPCONFIG is what marks a device as a configured IOS device.  A
-    # server that merely carries a stub running-config has none, which is how
-    # the real artefact ends up with 143 IOS devices out of 205 config blocks.
-    startup = ("<STARTUPCONFIG><LINE /></STARTUPCONFIG>"
-               if (ios_lines and with_startup) else "")
+    # No STARTUPCONFIG: whether a device is an IOS/ASA device is decided by its
+    # model, not by this element.  See NETWORK_DEVICE_MODELS.
+    startup = ""
     return f"""<DEVICE>
  <ENGINE>
-  <TYPE model="Server-PT">Server</TYPE>
+  <TYPE model="{model}">Server</TYPE>
   <NAME translate="true">{name}</NAME>
   <POWER>true</POWER>
   {cfg}
@@ -441,17 +439,24 @@ def test_dedup_count_and_config_line_stats_are_self_consistent() -> None:
     assert stats.as_dict()["ios_lines"] == 8
 
 
-def test_config_line_stats_distinguish_ios_from_stubs() -> None:
+def test_config_line_stats_select_ios_by_model_not_by_startup_element() -> None:
+    """IOS/ASA devices are identified by *model*.
+
+    The old rule was "carries a `<STARTUPCONFIG>` element", which is not a proxy
+    for anything: 123 of the 290 devices in the JASDF model had an empty one and
+    were counted as configured, while the only 20 with content held a harvested
+    template's factory default -- so the statistic described precisely the
+    devices that were wrong.  A server appliance carrying a 4-line stub is a
+    config block, but it is not an IOS device.
+    """
     doc = _doc(
-        _server("ios", ios_lines=("!", "hostname ios", "end")),
-        _server("stub", ios_lines=("!", "stub", "!", "end"),  # 4-line server stub
-                with_startup=False),
+        _server("R1", model="2911", ios_lines=("!", "hostname R1", "end")),
+        _server("srv", ios_lines=("!", "stub", "!", "end")),   # Server-PT
     )
     inv = inventory(Lab.from_bytes(doc))
-    assert inv.config_lines.blocks == 2
-    assert inv.config_lines.total_lines == 7
-    # the stub carries no STARTUPCONFIG, so it is not an IOS device
-    assert inv.config_lines.ios_blocks == 1
+    assert inv.config_lines.blocks == 2          # both have a RUNNINGCONFIG
+    assert inv.config_lines.total_lines == 7     # 3 + 4
+    assert inv.config_lines.ios_blocks == 1      # only the 2911
     assert inv.config_lines.ios_lines == 3
 
 
@@ -517,10 +522,14 @@ def test_real_artefact_service_counts_are_the_measured_truth() -> None:
     assert inv.aaa_users.raw == 2 and inv.aaa_users.leftover_instances == 0
     assert inv.ftp_accounts.raw == 2 and inv.ftp_accounts.leftover_instances == 0
 
-    # problem 17: both figures, and both methods stated with them
-    assert inv.config_lines.ios_lines == 22_579   # 143 devices with STARTUPCONFIG
+    # problem 17: both figures, and both methods stated with them.
+    # `ios_*` selects the 143 IOS/ASA devices BY MODEL (NETWORK_DEVICE_MODELS),
+    # not by the presence of a <STARTUPCONFIG> element -- 123 of the devices
+    # carried an empty one and the only 20 with content held another lab's
+    # factory default, so the old proxy measured the wrong population.
+    assert inv.config_lines.ios_lines == 22_648
     assert inv.config_lines.ios_blocks == 143
-    assert inv.config_lines.total_lines == 22_827  # all 205 RUNNINGCONFIG blocks
+    assert inv.config_lines.total_lines == 22_896  # all 205 RUNNINGCONFIG blocks
     assert inv.config_lines.blocks == 205
 
 

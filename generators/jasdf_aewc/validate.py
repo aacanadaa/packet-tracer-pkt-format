@@ -220,6 +220,21 @@ def main(path):
     else:
         note(f"configured    : all {len(netdev)} routers/switches/firewalls carry a config")
 
+    # Presence is not authorship.  A harvested template always supplies *some*
+    # config -- a factory default with `hostname Router` -- so "carries a config"
+    # passes on a device nobody ever configured.  COALITION-GW-01 shipped that
+    # way while PARTNER-RTR-01 was set up to peer with its address, so the
+    # documented eBGP path could not come up.  Requiring the config to name the
+    # device is the cheapest check that a template default cannot satisfy.
+    misnamed = [devs[s] for s in netdev
+                if f"hostname {devs[s]}" not in cfgs[s]]
+    if misnamed:
+        fail(f"{len(misnamed)} network devices carry a config that does not name "
+             f"them (template default or wrong device): {misnamed[:6]}")
+    else:
+        note(f"config identity: all {len(netdev)} configs set "
+             f"'hostname <device>'")
+
     lens = sorted(len(cfgs[s]) for s in netdev)
     note(f"config lines  : min={lens[0]} median={lens[len(lens)//2]} max={lens[-1]} "
          f"total={sum(lens):,}")

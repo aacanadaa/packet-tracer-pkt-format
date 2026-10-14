@@ -1,7 +1,7 @@
 # Enterprise-scale problem catalogue — JASDF AEW&C / JADGE model
 
-Every problem hit while producing the 290-device, 326-link, 22,579-line Packet
-Tracer model described in the JASDF AEW&C design resources: bugs, workarounds,
+Every problem hit while producing the 290-device, 326-link Packet Tracer model
+described in the JASDF AEW&C design resources: bugs, workarounds,
 limitations, dead ends, and "this didn't work, so we did X instead" moments.
 
 Sources: `JASDF_AEWC_README.md`, `JASDF_AEWC_DESIGN.md`, `JASDF_AEWC_EVIDENCE.md`,
@@ -60,15 +60,26 @@ evidence in the resolution log at the end of this document.
 | 31 | The build was not reproducible (random UUIDs) — *found while fixing 17/18* | High | **FIXED** |
 | 32 | The shipped package could not be run by its recipient (absolute paths) | Medium | **FIXED** |
 | 33 | The sanitiser failed *silently* on a document root | Medium | **WORKAROUND** |
+| 34 | 20 devices shipped a template's factory-default `STARTUPCONFIG`; 16 carried the default `cisco` enable secret | High | **FIXED** |
+| 35 | `ios_blocks` counted devices by a `<STARTUPCONFIG>` element, not by model — two tools, one statistic, two definitions | Medium | **FIXED** |
+| 36 | The lab's IOS credentials are type-5 hashes documented nowhere | Medium | **FIXED** |
+| 37 | `COALITION-GW-01` shipped unconfigured while its eBGP peer was configured to reach it | High | **FIXED** |
+| 38 | "carries a config" was a presence check a template default satisfies | Medium | **FIXED** |
 
-**Still open: 0.** Fixed: 23. Bounded with evidence (a property of Packet Tracer
+**Still open: 0.** Fixed: 28. Bounded with evidence (a property of Packet Tracer
 or of the model's scope, not a defect to repair): 4. Abstractions and cleared
 items: 6.
 
-Problems **31–33 are new**: they were found while fixing the others and were not
-in the original catalogue. 31 and 32 were real defects and are fixed; 33 is a
-latent trap in `pkt_core.audit` that is worked around in the generator and
-documented in the resolution log.
+Problems **31–38 are new**: they were found while fixing the others and were not
+in the original catalogue. All are fixed except 33, a latent trap in
+`pkt_core.audit` that is worked around in the generator and documented in the
+resolution log.
+
+**Problems 34–38 share one root cause and it is the same one as 1–5:** a
+harvested template always supplies *something*, so a check for presence is not a
+check for authorship. 34 and 37 were the template's config; 38 is the validator
+that accepted it; 35 is the statistic that was derived from the same wrong
+signal; 36 is what nobody could look up.
 
 **Every "FIXED" above is verified by a command, not by inspection.** See the
 resolution log at the end for the evidence, or run it yourself:
@@ -723,10 +734,16 @@ built by the older generator.
 
 ### 17 — config-line count — reconciled by stating the method
 
-Both figures were right under different methods: **22,579** lines across the 143
-devices that carry a `STARTUPCONFIG`, and **22,827** `<LINE>` elements across all
-205 `RUNNINGCONFIG` blocks. Every report now prints the figure *with* its method,
-and `validate.py` recomputes both from the artefact.
+Two numbers, two methods, and the fix is to print both rather than pick one:
+lines on the **143 IOS/ASA devices**, and raw `<LINE>` elements across all **205**
+`RUNNINGCONFIG` blocks. Every report and `validate.py` now carry the method with
+the figure.
+
+The figures currently read **22,648** and **22,896**. They were 22,579 / 22,827
+until problems 34 and 37 were fixed: a device that was shipping a harvested
+template's factory default now carries a real configuration, so the total moved
+by 69 lines. That the number is checkable is exactly why the change is visible
+and explicable -- see problem 35 for why the *definition* also had to change.
 
 ### 18 — stale build reports — fixed
 
@@ -818,3 +835,121 @@ therefore returns an empty report for a document root, which reads exactly like
 table explicitly. The upstream fix is for the helper to raise when a target
 resolves to no engine at all; until then, callers must pass DEVICE elements.
 
+
+### 34–38 — the same defect as 1–5, one level down: a template always supplies *something*
+
+Found while auditing the IOS command signatures (problem 20), and they are one
+story. Everything below is the same mistake as the original cluster: **a check
+for presence is not a check for authorship, because a harvested template always
+has an answer.**
+
+#### 34 — 20 devices shipped another lab's factory-default config
+
+The harvested device templates store a complete `STARTUPCONFIG` — the config
+Packet Tracer writes on a factory-fresh device — and `add_device` copied it in.
+So 16 `IR1101` radar routers and 4 ASA 5505s shipped:
+
+```
+RDR-*-RTR (IR1101, 16x)   76 lines, 'hostname Router',   version 17.10.1,
+                          enable secret 5 $1$mERr$A0KmwwybwYdjSTcVdJ15p0
+FW-* (5505, 4x)           70 lines, 'hostname ciscoasa', ASA Version 8.4(2),
+                          ': Written by enable_15 at 00:00:00 UTC Mar 1 1993'
+```
+
+`$1$mERr$A0KmwwybwYdjSTcVdJ15p0` is the type-5 hash of **`cisco`**, the publicly
+known default. Those 16 devices also carried the intended secret in their
+*running* config, so the file disagreed with itself about how to log in — and a
+device whose startup and running secrets differ is one nobody can secure by
+reading the file.
+
+`clear_template_startup_config()` now removes the residue. It clears rather than
+mirrors `RUNNINGCONFIG`, because that is what real labs do: across **4,729
+devices in 1,014 corpus files**, 60% have no `STARTUPCONFIG` element at all and
+23% have an empty one, so **83% carry no startup config**; where one exists it is
+that lab's own. Packet Tracer loads these files from `RUNNINGCONFIG` — 123 of the
+290 devices here already had an empty startup config and loaded correctly.
+
+#### 35 — two tools, one statistic, two definitions
+
+`ConfigLineStats.ios_blocks` counted devices whose `<ENGINE>` carried a
+`<STARTUPCONFIG>` **element**. `validate.py` counted devices whose **model** is
+in a nine-entry allow-list. Both reported 143 — by coincidence, and for opposite
+reasons: the audit was counting 123 *empty* elements plus the 20 residue-carrying
+ones, i.e. precisely the devices that were wrong.
+
+Fixed by giving the audit the same model allow-list
+(`NETWORK_DEVICE_MODELS`), so the two cannot disagree, and by correcting the
+label from "143 IOS devices with STARTUPCONFIG" to "143 IOS/ASA devices, by
+model". A statistic two tools derive differently is not a statistic.
+
+#### 36 — nobody wrote the credentials down
+
+`jasdf_kit.py` defines `ENABLE_SECRET` and `ADMIN_SECRET` as Cisco type-5
+hashes. The plaintext was never recorded, and 138 of the 143 devices run
+`aaa new-model` with `login authentication default` — so **the lab cannot be
+logged into from the artefact**. Agent tooling hit this directly: an attempt to
+open a device CLI for an end-to-end ping could not authenticate.
+
+Fixed by documenting it: the package README and the loose copy now carry a
+**Credentials** section listing what *is* readable in the file (RADIUS key, SNMP
+communities, HSRP key, web portal login) and stating plainly that the enable and
+admin secrets are unrecoverable, with the two ways to get CLI access (Packet
+Tracer's Config tab, or rebuild with your own `ENABLE_SECRET`).
+
+#### 37 — a documented device shipped unconfigured
+
+`COALITION-GW-01` was added at `10.255.0.7`, cabled to the backbone and to
+`FW-COALITION`, and named in the design as the AS65001 side of the cross-domain
+eBGP session. `PARTNER-RTR-01` was configured to peer with `10.255.0.7`. But
+`"cgw"` appeared in exactly three places — the `add()`, and two `rlink()` calls —
+and never in `configure()`. The device shipped the template default, so the
+gateway's interfaces were down, its address existed only in the design document,
+and **the documented eBGP path could not come up**.
+
+It now has a full config: loopback `10.255.0.7/32`, `GigabitEthernet0/0/1` on the
+design's `10.99.6.1/30` (the link to `FW-COALITION`, whose side is `10.99.6.2`),
+OSPF area 0, a specific route to the partner LAN, and `router bgp 65001` peering
+with `10.254.0.2` (AS65002, `ebgp-multihop 2` across the firewall). `rlink` had
+allocated a generic /30 for that link; the address is re-pointed to the design's
+so `ifaces()`, the OSPF statement and the address plan all agree.
+
+#### 38 — the validator that let 34 and 37 through
+
+`validate.py` asserted that every network device "carries a config" — which a
+factory default satisfies. It now also requires the config to name the device:
+
+```
+misnamed = [devs[s] for s in netdev if f"hostname {devs[s]}" not in cfgs[s]]
+```
+
+`hostname <its own name>` is the cheapest assertion a template default cannot
+satisfy. Verified in both directions:
+
+```
+previous artefact   FAIL  1 network devices carry a config that does not name
+                          them (template default or wrong device):
+                          ['COALITION-GW-01']        exit 1
+rebuilt artefact    ok    config identity: all 143 configs set 'hostname <device>'
+```
+
+### Effect on the published figures
+
+Two numbers moved, and that is the point of stating the method with the figure:
+
+| | before | after |
+| --- | ---: | ---: |
+| lines on IOS/ASA devices | 22,579 | **22,648** |
+| `<LINE>` elements, all blocks | 22,827 | **22,896** |
+
+The +69 is `COALITION-GW-01` gaining a real configuration. Because both figures
+are recomputed from the artefact by `validate.py` and `pkt audit`, the change is
+visible and explicable rather than silent.
+
+### Artefacts after 34–38
+
+| file | sha256 |
+| --- | --- |
+| `JASDF_AEWC_JADGE.pkt` (290 devices, 1,128,475 B) | `c40c14178f3334280a4cd41f9c4b12656cc21bb4fa5bd89fa0baceb8418ae3e6` |
+| `JASDF_AEWC_JADGE_standard.pkt` (199 devices, 843,321 B) | `b7857876ca4b01c1cb686dde3ec4df75a4e066f5f3b505da9c38ba96ceceef6f` |
+
+Both pass every gate, and `./run_all.sh` reproduces them byte-for-byte.

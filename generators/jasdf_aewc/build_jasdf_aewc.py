@@ -896,6 +896,34 @@ class JASDF:
                                  uplink_ports=["GigabitEthernet0/1"])
 
     def _coalition(self):
+        # COALITION-GW-01 is the JASDF side of the cross-domain boundary.  It
+        # was added and cabled but never configured, so it shipped the harvested
+        # template's factory default (`hostname Router`, no addresses, nothing
+        # up) while PARTNER-RTR-01 was configured to peer with 10.255.0.7 -- an
+        # address that existed only in the design document.  The eBGP session
+        # could not form.  Presence-based validation missed it because a
+        # template default is still "a config".
+        #
+        # The link to FW-COALITION is the design's 10.99.6.0/30 (firewall .2),
+        # so re-point the address rlink allocated from the generic /30 pool.
+        self.routed = [
+            (d, p, "10.99.6.1" if (d == "cgw" and p == "GigabitEthernet0/0/1") else ip,
+             M30 if (d == "cgw" and p == "GigabitEthernet0/0/1") else m)
+            for (d, p, ip, m) in self.routed
+        ]
+        self.set_cfg("cgw", K.router_config(
+            "COALITION-GW-01", "JASDF coalition boundary gateway (AS65001 edge)",
+            self.ifaces("cgw"), loopback="10.255.0.7",
+            ospf=self.wans("cgw"), qos=False,
+            # reach the partner LAN across the firewall; no default route here,
+            # WAN-EDGE-01 owns the internet exit
+            statics=[("10.254.0.0", "255.255.255.0", "10.99.6.2")],
+            extra=["!", "router bgp 65001", " bgp router-id 10.255.0.7",
+                   " bgp log-neighbor-changes",
+                   " network 10.99.6.0 mask 255.255.255.252",
+                   " neighbor 10.254.0.2 remote-as 65002",
+                   " neighbor 10.254.0.2 description PARTNER-RTR-01 (allied)",
+                   " neighbor 10.254.0.2 ebgp-multihop 2", "!"]))
         self.set_cfg("ptr", K.router_config(
             "PARTNER-RTR-01", "Allied coalition partner edge router (AS65002)",
             self.ifaces("ptr"), loopback="10.254.0.2", ospf=None,
@@ -1172,6 +1200,48 @@ class JASDF:
         self.leftover_report = report.as_dict()
         return sum(self.leftover_report.values())
 
+    def clear_template_startup_config(self):
+        """Drop the factory-default ``STARTUPCONFIG`` the templates carry.
+
+        The harvested templates store a complete default configuration that
+        Packet Tracer writes on a factory-fresh device.  Copying it into a
+        generated device produces a file whose **startup** config belongs to a
+        different lab, and it is not cosmetic:
+
+        * 16 ``IR1101`` radar routers shipped ``enable secret 5
+          $1$mERr$A0KmwwybwYdjSTcVdJ15p0`` -- the MD5 of the publicly known
+          default ``cisco`` -- while their *running* configs carried the
+          intended secret.  A device whose startup and running secrets disagree
+          is a device nobody can secure by reading the file.
+        * the same 16 said ``hostname Router`` and the 4 ASA 5505s said
+          ``hostname ciscoasa``: the device's own name was nowhere in its
+          startup config.
+
+        The residue is cleared rather than rewritten to mirror ``RUNNINGCONFIG``,
+        because that is what real labs do: across 4,729 devices in 1,014 corpus
+        files, 60% have no ``STARTUPCONFIG`` element at all and 23% have an empty
+        one, so 83% carry no startup config.  Of the 17% that do, the content is
+        that lab's own configuration.  Packet Tracer loads these files from
+        ``RUNNINGCONFIG`` -- 123 of the 290 devices here already had an empty
+        startup config and loaded correctly.
+
+        Returns the number of ``<LINE>`` elements removed.
+        """
+        removed = 0
+        for sid in self.sid.values():
+            eng = self.lab._els[sid].find("ENGINE")
+            if eng is None:
+                continue
+            startup = eng.find("STARTUPCONFIG")
+            if startup is None:
+                continue
+            for line in list(startup):
+                if line.tag == "LINE":
+                    startup.remove(line)
+                    removed += 1
+        self.startup_lines_cleared = removed
+        return removed
+
     def power_cabled_ports(self):
         """Some harvested templates ship with <POWER>false</POWER> on their ports
         (notably AccessPoint-PT).  A cabled port on a device we placed is by
@@ -1263,6 +1333,7 @@ def main(argv=None):
     n = j.fix_serial()
     cleared = j.sanitize()
     leftovers = j.strip_template_leftovers()
+    startup_cleared = j.clear_template_startup_config()
     powered = j.power_cabled_ports()
     devices_powered = j.power_all_devices()
 
@@ -1273,6 +1344,7 @@ def main(argv=None):
     rep["stale_nic_fields_cleared"] = cleared
     rep["template_leftovers_removed"] = leftovers
     rep["template_leftovers_detail"] = j.leftover_report
+    rep["startup_config_lines_cleared"] = startup_cleared
     # These two count what the *repair passes fixed*, which is not the same as
     # "how many are on".  A correctly built lab needs no repairs at all, so both
     # read 0 -- and a reader seeing `devices_powered_on: 0` would conclude the

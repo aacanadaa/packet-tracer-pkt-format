@@ -335,8 +335,8 @@ Each airframe is a self-contained routed domain:
 | Devices | 290 |
 | Links | 326 (290 copper, 36 serial bearers) |
 | Devices carrying a running-config | 205 |
-| `<LINE>` elements in those blocks | 22,827 |
-| Configuration lines on IOS/ASA devices | 22,579 across the 143 devices that carry a `STARTUPCONFIG` |
+| `<LINE>` elements in those blocks | 22,896 |
+| Configuration lines on IOS/ASA devices | 22,648 across the 143 IOS/ASA devices (selected by model) |
 | Longest configuration | 250 lines (`JADGE-BB-SW-01`) |
 | Distinct device models | 14 |
 | Addressed interfaces | 622 |

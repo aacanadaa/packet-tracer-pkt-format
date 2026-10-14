@@ -40,10 +40,11 @@
   "ftp-accounts": 48,
   "dhcp-port-bindings": 100
  },
+ "startup_config_lines_cleared": 1040,
  "ports_switched_on_by_repair": 122,
  "devices_switched_on_by_repair": 0,
  "devices_with_power_true": 199,
  "output": "out/JASDF_AEWC_JADGE_standard.pkt",
- "size_bytes": 847355,
- "sha256": "c931e7ef951887e8c0f841a8369291eb61891189e38c027c58b9916a2798537f"
+ "size_bytes": 843321,
+ "sha256": "b7857876ca4b01c1cb686dde3ec4df75a4e066f5f3b505da9c38ba96ceceef6f"
 }
