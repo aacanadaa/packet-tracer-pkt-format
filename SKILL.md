@@ -38,10 +38,24 @@ $ git clone https://github.com/aacanadaa/packet-tracer-pkt-format.git
 $ cd packet-tracer-pkt-format
 $ python3 -m venv .venv && . .venv/bin/activate
 $ pip install -e . pytest hypothesis pydantic
-$ python -m pytest tests/ -q            # expect 245 passed, 49 skipped
-                                        #   (the 49 are the optional Rust tests;
-                                        #    with pkt_core_native: 293 passed, 1 skipped)
+$ python -m pytest tests/               # the bar is 0 failures
 ```
+
+Do **not** pass `-q`: `pyproject.toml` already sets
+`addopts = "-q --strict-markers -m 'not corpus'"`, so a second `-q` makes it `-qq`
+and suppresses the summary line entirely — you get dots and no count. The default
+run deselects the slow corpus tests; opt into those with `-m corpus`.
+
+Observed with `pkt_core_native` installed, at this commit:
+
+```
+542 passed, 1 skipped, 35 deselected
+```
+
+The exact totals grow as tests are added — treat **0 failures** as the invariant and
+the skip count as environmental: the Rust-accelerator tests skip when
+`pkt_core_native` is absent, so a large skip count means a missing optional
+accelerator, not a broken checkout.
 
 Optional but faster: `pip install pkt_core_native` gives the Rust cipher
 accelerator (~100x). `libgcrypt` is a further optional accelerator. **Neither is
@@ -95,11 +109,14 @@ Nothing is required to author a file.
 ### 1. `src/pkt_core/` — read, inspect, modify
 
 ```python
-from pkt_core import decode, decode_bytes, encode_bytes, Lab   # Lab re-exported below
-from pkt_core.models import Lab
+from pkt_core import decode, decode_bytes, encode_bytes   # container level
+from pkt_core.models import Lab                           # not re-exported by pkt_core
 
-lab = Lab.from_bytes(decode("lab.pkt").xml)     # format auto-detected
-lab.version, lab.root_tag, lab.is_activity
+container = decode("lab.pkt")                   # verifier-based format detection
+container.root_tag, container.is_activity       # 'PACKETTRACER5', False
+lab = Lab.from_bytes(container.xml)
+
+lab.version                                     # '9.0.1.0858'
 lab.devices, lab.links, lab.clusters, lab.options
 lab.activity_password                          # <ACTIVITY PASS="..."> attribute!
 lab.activity_sections                          # COMPARISONS/INITIALSETUP/LOCKINGTREE/INSTRUCTIONS
@@ -115,8 +132,11 @@ lab.set_activity_password("newpass")
 lab.devices[0].set_name("CORE-R1")             # writes to ENGINE/NAME, correctly
 lab.devices[0].set_position(123, 456)
 
-out = encode_bytes(lab.to_xml(), "pkt")        # byte-exact for unmodified docs
+out = encode_bytes(lab.to_xml(), container.format_name)   # byte-exact if unmodified
 ```
+
+`root_tag` / `is_activity` live on the **container**; `version` lives on the **lab**.
+`Lab` is not exported from the `pkt_core` package root — import it from `pkt_core.models`.
 
 CLI: `pkt info | unpack | pack | diff | export | audit`.
 `pkt unpack` emits XML + container metadata + per-device IOS configs + a topology graph.
