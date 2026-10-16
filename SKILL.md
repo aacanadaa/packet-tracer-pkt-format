@@ -1,6 +1,6 @@
 ---
 name: packet-tracer-pkt-format
-description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, and generators for full topologies and graded activities. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files.
+description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the eight rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
 ---
 
 # packet-tracer-pkt-format
@@ -8,6 +8,17 @@ description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs
 Everything here is **offline**. Packet Tracer is only needed to *open* a result,
 never to build one — but you can and should open the result, because a file can
 be byte-perfect and still render wrong.
+
+Two failure modes are worth knowing before you write a line, because neither is
+visible in the XML and both have shipped:
+
+- **A cable is not a configuration.** `link()` draws the cable and sets the
+  port's electrical properties; it does not give the interface a state. A lab can
+  pass every structural gate with 87 cabled ports that nothing configures.
+  → **Rule 7**, and gate 0.
+- **A port name Packet Tracer cannot resolve makes the whole file unopenable** —
+  not one dead cable, the entire document, with a message that names no device.
+  → **Rule 8**, and gate 5.
 
 Packet Tracer 9.0.1 is installed on this machine and starts headless:
 
@@ -24,6 +35,7 @@ plumbing, and it is the one that reports "corrupted Physical Workspace data".
 ## When to use this skill
 
 - Build a network lab (`.pkt`) from code or a JSON spec
+- Build a lab at **scale** — see the eight rules and the gate chain below
 - Build a **scored activity** (`.pka`) with instructions, grading and a wizard password
 - Read / inspect / diff / edit existing Packet Tracer files
 - Convert a topology to graphviz, netbox or containerlab
@@ -239,14 +251,20 @@ deliberate — silently renaming hides authoring bugs. Either:
 `lab.device_names()` lists what is taken. Note: device `<NAME>` lives under
 `<ENGINE>`, not as a direct child of `<DEVICE>`.
 
-## Authoring at scale — six rules, learned by shipping a broken 290-device lab
+## Authoring at scale — eight rules, learned by shipping broken labs
 
 A 290-device enterprise model was generated, structurally validated, and shipped
 with `RESULT: PASSED (0 warnings)` — and it was still wrong. The validator was
 checking *presence*, never *uniqueness* or *authorship*; nothing checked position
 or power at all; and the headline figures could not be reproduced from the file.
-These six rules are the generalisation. They are not style advice — each one corresponds to
-a defect that reached a delivered file.
+
+Then a 386-device one was built, passed **every** gate in the table below, and
+shipped with **87 cabled ports that nothing configured**, five firewalls whose
+own outside port was shut, and three port names that made the entire file refuse
+to open. Rules 7 and 8 come from that second build.
+
+These eight rules are the generalisation. They are not style advice — each one
+corresponds to a defect that reached a delivered file.
 
 All five are now repaired in the delivered file, and the repair is gated:
 
@@ -261,6 +279,17 @@ All five are now repaired in the delivered file, and the repair is gated:
 | **label** boxes overlapping | ~111 | **0** |
 | devices off the page | 60 | **0** |
 | build reproducible? | **no** — random UUIDs per run | yes, byte-identical |
+
+And the second build, before and after rules 7 and 8:
+
+| | shipped | after repair |
+| --- | --- | --- |
+| cabled ports with no `interface` block | **87** | 0 |
+| ports administratively shut | **5** | 0 |
+| links whose ends disagreed on trunk/access | **45** | 0 |
+| red link-indicator pixels in the render | 4538 | **300** (all device artwork) |
+| port names Packet Tracer rejects | **3** | 0 |
+
 
 ### Rule 1 — inherit template state; never write a constant over it
 
@@ -400,6 +429,35 @@ boxes), `LINES`, `RECTANGLES`, `ELLIPSES`, `POLYGONS`. The JADGE model uses none
 of them — only the single `ROOTCLUSTER` background — so device-and-label overlap
 is the live mechanism there, but a general checker must not assume that.
 
+#### How many devices fit on a page — and why tier count decides it
+
+The page is usually the binding constraint on scale, not the device count, and
+the arithmetic is worth doing before choosing a size.
+
+`check_layout.analyse()` calls `on_page(x, y)` with `allow_wrap=False`, and
+`finalise_lab.py` gates on `off_page` being empty. **The packer's page-column
+overflow is therefore not something the gates accept** — every device, plus its
+label box, must be on the primary 3900×3900 page. At `ROW_PITCH = 150` that is
+about **26 rows**.
+
+`lab_api.Layout` gives each semantic tier its own band and stacks bands
+vertically, so **each tier costs a row before a single device is placed**. A
+model with 18 tiers has 8 rows left for devices; the same devices in 12 tiers
+have 14. Measured: a 386-device model fits only because related zones share a
+band, and an earlier 415-device arrangement of the same terminal did not.
+
+The levers, in order of effect:
+
+1. **Fewer tiers** — merge related zones into one band. This is free: it changes
+   the picture's grouping, not the network.
+2. **Shorter device names** — `column_pitch()` is 200 units for names up to 16
+   characters, 260 for 17–24, 320 beyond. A 17-character hostname costs 30% more
+   horizontal space than a 16-character one, for one character.
+3. **Fewer devices**, last, because it costs scope.
+
+Estimate before you build: `rows ≈ Σ ceil(n_tier / (3900 / pitch)) + n_tiers`,
+and if that exceeds 26 the model will not fit however clean the cabling is.
+
 ### Rule 3 — if the validator prints a count, the count must be of *distinct* things
 
 This is the rule that would have caught both bugs above, and it is one sentence:
@@ -429,6 +487,25 @@ assert raw == distinct                     # no silent duplication
 exposes it as `pkt audit`. If you add a counter anywhere, add its distinct
 counter at the same time.
 
+#### Replication is not duplication — and Packet Tracer does not know that
+
+Some identities are **document-wide** and some are **per device**, and the
+difference decides how many servers you may run.
+
+`duplicate-dhcp-pool` and `duplicate-aaa-client` are document-wide because
+Packet Tracer keys DHCP pools and AAA clients by identity across the whole file.
+A second DHCP server holding the same pools is therefore indistinguishable from
+duplication, and the gate fails. **One authoritative server per service**, or the
+count is a lie either way.
+
+DNS is the exception the audit models explicitly: a zone is a *set per server*,
+so two DNS servers holding the same records is replication and is reported as
+`768 records (384 distinct × 2 servers)`. Do not "fix" that by deleting one.
+
+If you want a standby node for realism, give it an address and no records, and
+say so in the design document rather than leaving a passing gate to imply the
+estate is redundant when it is not.
+
 ### Rule 4 — sanitise every field you did not author
 
 **Sanitise every field you did not author.** Device templates are captured from
@@ -452,6 +529,36 @@ Related traps in the same family:
   location tree contains its own `<NAME translate="true">` elements, so a naive
   `/DEVICE/NAME` count double-reports (587 found against 297 real devices).
   Device names live under `<ENGINE>`.
+- **It is whole *blocks*, not just records.** Stripping leftover records is not
+  enough: a harvested template ships the entire service block already marked
+  `<ENABLED>1</ENABLED>`. On a 386-device build that meant **52 devices
+  advertising themselves as NTP servers and 52 as HTTP servers**, none of which
+  anyone authored — the audit's record-level check sees nothing wrong, because
+  the records were correctly removed and the empty shell still says "enabled".
+
+  Two passes are needed, and they are different jobs:
+
+  ```python
+  # 1. on a device we DO configure: clear every block, then write only what was asked
+  def configure_server(dev_el, **requested):
+      eng = dev_el.find("ENGINE")
+      _strip_service_blocks(eng)          # DNS_SERVER, DHCP_SERVERS, ACS_SERVER, ...
+      ...                                 # now write `requested`
+
+  # 2. on a device we do NOT configure: remove the blocks entirely
+  for key, sid in devices.items():
+      if key not in configured_with_a_service:
+          _strip_service_blocks(engine_of(sid))
+  ```
+
+  Measured effect on the published figures: `ntp/http/syslog servers` **52 → 1**.
+- **Count a server only when it holds something.** Once the shells are gone,
+  `findtext("ENABLED")` is not the test — count devices with an actual
+  `RESOURCE-RECORD` / `POOL` / `CLIENT`. An empty shell is not a service.
+- **Beware generic element names when counting.** `<USER>` is also an empty child
+  of every device's inert `<EMAIL_CLIENT>`, so a document-wide `iter("USER")`
+  reported **248 AAA servers** on a model that has one. Scope the search to the
+  subtree that owns the concept (`ACS_SERVER`), not the whole device.
 
 ### Rule 5 — a documented number is a claim; make it reproducible
 
@@ -522,9 +629,147 @@ This also explains Rule 1. The template's `POWER` is an answer; writing a
 constant over it *lost* the template's authorship, and then a presence check that
 saw `POWER` at all was satisfied.
 
+### Rule 7 — a cable is not a configuration
+
+> **`lab_api.link()` draws a cable and sets the port's electrical properties. It
+> does not give the interface a state.**
+
+This is the same lesson as the serial-bearer warning above, generalised — and it
+is the single largest defect class a generated lab ships with, because *nothing
+in the existing gates can see it*. Layout passes (the devices are placed), the
+audit passes (the services are distinct), the round-trip passes (the bytes are
+valid). The links simply never come up.
+
+Measured on a 386-device build that passed every gate:
+
+| Defect | Count | Cause |
+| --- | ---: | --- |
+| `no-interface-block` | **87** | L3-to-L3 links drawn with `link()` instead of `rlink()`, so the generator's "routed interfaces" registry never learned about them. One core router had **no interface blocks at all** for either uplink — pure dead cables |
+| `shutdown` | **5** | a firewall config ending in a blanket `interface Ethernet0/0` / `shutdown` also shuts the **outside** port. Never shut a port a zone depends on; shut only the ports nothing claims |
+| `trunk-facing-access` | **45** | declaring *all* 24 ports of a collapsed-core switch as trunks, including the ones holding routed `/30`s — the later block reverts them to Layer 2, and every routed neighbour dies |
+
+Two more ways it bites that are easy to miss:
+
+- **A routed port written twice.** If a port appears as both a routed port
+  (`no switchport` + `ip address`) and a trunk, the parser applies the *later*
+  block. Emit each port's mode exactly once.
+- **Router-on-a-stick parents.** Subinterfaces inherit the physical interface's
+  state. `interface GigabitEthernet0/0/1.10 / no shutdown` does nothing if
+  `interface GigabitEthernet0/0/1` was never brought up — and a subinterface-only
+  config never mentions the parent.
+
+**The fix is structural, not a longer list.** Derive each port's role from the
+peer it is cabled to, so the two cannot disagree:
+
+```python
+for port, peer in cabled_ports(key).items():
+    if port in routed_ports(key):     continue            # gets ip + no shutdown
+    if peer in l3_keys:               trunks.append(port)  # peer terminates L3
+    elif peer_model in NETWORK_MODELS: trunks.append(port) # switch-to-switch
+    else:                             access[port] = default_vlan
+```
+
+and then **gate it**, because the discipline will drift:
+
+```console
+$ python3 tools/audit_links.py lab.pkt        # exit 1 on any finding
+```
+
+`tools/audit_links.py` reads the written artefact and asks one question per
+cable — *would this port come up?* It needs no cooperation from the generator,
+which is what makes it a real check. Measured on the repaired build: **380 links,
+0 findings**, and sabotaging a single `no shutdown` makes it name the device,
+port and peer.
+
+### Rule 8 — a port name Packet Tracer cannot resolve makes the *whole file* unopenable
+
+This is the most expensive lesson in this document, because the failure mode
+looks nothing like its cause:
+
+```
+Unable to open file. The file ... is not compatible with this version of
+Cisco Packet Tracer
+```
+
+One bad port name does **not** kill one cable. Packet Tracer refuses the entire
+document — 386 devices, 1.3 MB — with a message that names no device, no port and
+no reason. Every structural gate passes, because the XML is perfectly valid.
+
+Measured, on Packet Tracer 9.0.1, from names the reference corpus "attested":
+
+| Model | Corpus says | PT 9.0.1 accepts |
+| --- | --- | --- |
+| `7960` (IP phone) | `FastEthernet0` | **`Switch`** (uplink), `PC` (passthrough) |
+| `Cloud-PT` | `GigabitEthernet0` | **`Port 0`** |
+| `WLC-3504` | `GigabitEthernet0/1` | **`GigabitEthernet1`** |
+
+Every `Ethernet0/1/2`, `GigabitEthernet0/0..0/5`, `Serial0/0/0` and `Coaxial1`
+name was also tried on those three models and rejected.
+
+**Corpus frequency is evidence of what some older Packet Tracer wrote, not of
+what this one accepts.** Treat a port name as a fact you have not checked until
+you have checked it:
+
+1. **Template tier —** the model's own harvested factory config lists
+   `interface <NAME>` lines. Strongest evidence; covers 29 of 137 models.
+2. **Module tier —** ports a fitted module adds (`2911` + HWIC-2T →
+   `Serial0/0/0`). A base inventory alone calls every serial bearer unattested.
+3. **Attested tier —** a `<LINK><CABLE><PORT>` string naming that model in a real
+   save.
+4. **Convention tier —** **inference.** No factory config, so fall back to the
+   module type: a lone `eCopperFastEthernet` is `FastEthernet0`, a lone
+   `eCopperGigabitEthernet` is `GigabitEthernet0`. Verify before use.
+
+Record the tier of every name, and **remove** names you measured as rejected
+rather than annotating them — a table that still permits a rejected name will
+pass a link the artefact cannot carry.
+
+#### What cannot attest port names
+
+- **The reference corpus has none of the industrial/IoT models.** A full mine of
+  952 files found **zero** instances of `IE-9320`, `IE-3400`, `IE-2000`,
+  `IR1101`, `CGR1240`, `ISA-3000`, `PLC-PT`, `HMI-PT`, `RFID Reader` or any
+  sensor family. It is CCNA-era lab gear: 28 device classes in total.
+- **Packet Tracer's own palette templates carry no port names.** The 89 `.ptd`
+  files inside the AppImage decode cleanly with `pt9.decode(..., "pkt")`, but
+  they describe modules and slots (`PT-IOT-NM-1CFE`), not instantiated names.
+- **A model loading alone proves nothing about a cable.** All 46 candidate models
+  load fine in a two-device file; that says nothing about whether a name resolves.
+
+#### Reading `ENGINE/TYPE` — get this wrong and every lookup silently misses
+
+```xml
+<ENGINE><TYPE model="3650-24PS">MultiLayerSwitch</TYPE></ENGINE>
+```
+
+The element **text** is the device *class*; the **`model=` attribute** is the
+model. `d.findtext("ENGINE/TYPE")` returns `"MultiLayerSwitch"`, which no port
+table is keyed by — so a miner keyed on the text reports "28 models of interest,
+all zero" and looks like it ran successfully. Use:
+
+```python
+t = dev.find("ENGINE/TYPE")
+model = (t.get("model") or (t.text or "")).strip()
+```
+
+#### Verifying a rejection, without being fooled
+
+- **Read the verdict from the window title**, not from a screenshot:
+  `Incompatible File -- Cisco Packet Tracer`. OCR of the modal dialog reports
+  *rejected* files as accepted — that mistake cost two blind alleys.
+  `tools/pt_accept.py` does it correctly.
+- **Reproduce before believing.** Several Packet Tracer instances launched in
+  quick succession can show the dialog for a file that is fine. Always batch a
+  **known-good control** alongside the suspect file; if the control also fails,
+  the harness is at fault, not the lab.
+- **Bisect, do not guess.** `pt_bisect.py` removes devices (and their physical
+  workspace node and CPUR, so the document stays self-consistent) and halves on
+  the failing subset. Note that a failure may need devices from both halves —
+  "neither half fails alone" is a real outcome, not a bug in the tool.
+
 ## Before you ship — run the gates, in this order
 
-Rules 1–6 are disciplines; these are the commands that *enforce* them. Each exits
+Rules 1–8 are disciplines; these are the commands that *enforce* them. Each exits
 non-zero on failure, so they compose in a script: `generators/jasdf_aewc/run_all.sh`
 chains gates 1–3 (plus its own `validate.py`, which adds the `hostname <name>`
 identity check from Rule 6) and then builds the diagrams, docs and checksums. Gates 4
@@ -533,15 +778,25 @@ the repo root with the venv active.
 
 | # | Command | Proves | Non-zero when |
 |---|---|---|---|
+| 0 | `python3 tools/audit_links.py lab.pkt` | **every cabled port is brought up by the configuration that ships with it** — no missing interface block, no shutdown, no routed-and-trunk port, no trunk facing an access port | any link endpoint would not come up (exit 1) |
 | 1 | `python3 tools/finalise_lab.py lab.pkt --templates tools/device_templates.json` | the single writer: sanitises un-authored fields, repacks, then **re-gates the bytes actually written** — layout, audit, and byte-exact decode round-trip | layout violation, audit finding, or round-trip DIFFERS (exit 1) |
 | 2 | `python3 tools/check_layout.py lab.pkt` | geometry — label boxes, on-page, coincidence, NN spacing | any overlap, off-page icon, coincident pair, unreadable file (exit 1) |
 | 3 | `pkt audit lab.pkt --templates tools/device_templates.json` | raw **and** distinct counts per service family, template leftovers | any duplicate — i.e. a count that was never distinct (exit 1) |
 | 4 | `python3 tools/audit_ios_commands.py --artifact lab.pkt --corpus <corpus>` | every config line against the attested corpus | a **suspicious** signature (exit **2**). Unattested-but-plausible lines are reported and do *not* fail — 136 of 235 signatures are normally UNATTESTED, so exit 0 here is the expected state |
-| 5 | `python3 tools/pt_runtime_verify.py --artifact lab.pkt` | Packet Tracer actually loads it: renders, converges, pings | load failure, unreachable host |
+| 5 | `python3 tools/pt_accept.py lab.pkt control.pkt` | Packet Tracer actually opens it — verdict read from the window title | `Incompatible File` for the lab but not the control (exit 1) |
+| 6 | `python3 tools/pt_runtime_verify.py --artifact lab.pkt` | it renders, converges and passes traffic | load failure, unreachable host |
 
 Gate 1's round-trip check is the library's core promise tested on real output, not on a
 fixture: the bytes written are decoded again and compared. If that line says `DIFFERS`, the
 artifact is not shippable no matter what else passed.
+
+**Gate 0 is the one that catches Rule 7**, and it is cheap — a static XML read, no
+Packet Tracer. It is worth running before gate 1, because a lab full of dead links
+otherwise passes everything and looks finished.
+
+**Gate 5 is the only one that can catch Rule 8** — a port name Packet Tracer refuses.
+Gate 6 subsumes it, but gate 5 returns in seconds where gate 6 takes minutes, so run it
+first when iterating on cabling.
 
 Gate 4 needs the reference corpus, which is *not* committed (see `corpus/README.md`;
 `python3 corpus/fetch_corpus.py` reproduces it). Point `--corpus` at wherever that put the
@@ -549,10 +804,10 @@ files — the decoded result is cached in `build/ios_attestation.json`, which re
 `corpus_dir` it used, so a re-run is fast. On the shipped lab it decodes 1,058 files and
 reports 0 suspicious.
 
-Gates 1–3 are static and fast. Gate 4 needs a cold-cache corpus decode first
-(~1–3 min for 1,058 files), then it is cached. **Gate 5 is the only one that can catch
+Gates 0–3 are static and fast. Gate 4 needs a cold-cache corpus decode first
+(~1–3 min for 1,058 files), then it is cached. **Gate 6 is the only one that can catch
 problem 8** (a bearer that is structurally perfect and functionally dead) and problem 24
-(structure ≠ function). If you can only run one, run gate 5 — it needs PT under Xvfb, which
+(structure ≠ function). If you can only run one, run gate 6 — it needs PT under Xvfb, which
 works offline here:
 
 ```console
@@ -602,8 +857,9 @@ Then the checks no tool can make for you:
 
 ## False alarms — what Packet Tracer's rendering does *not* mean
 
-Four things look like failures and are not. Chasing them wastes a cycle; "fixing" them
-breaks a correct lab. Each is recorded with its probe in `docs/ENTERPRISE_PROBLEMS.md`.
+Things that look like failures and are not. Chasing them wastes a cycle; "fixing" them
+breaks a correct lab. Each is recorded with its probe in `docs/ENTERPRISE_PROBLEMS.md` (JASDF build) or
+`docs/ENTERPRISE_PROBLEMS_YAMLT.md` (container-terminal build).
 
 - **Amber link lights after opening.** Packet Tracer runs spanning-tree convergence on load,
   so access ports show amber for the first ~30 s (problem 14). Toggling Realtime⇄Simulation
@@ -642,9 +898,62 @@ breaks a correct lab. Each is recorded with its probe in `docs/ENTERPRISE_PROBLE
   that *should* produce findings, or assert how many things it looked at. An empty result
   and an empty scope are indistinguishable from the outside.
 
+- **Red pixels in the render that are not links.** Before concluding a lab is full of dead
+  cables, identify the red. Two device icons draw red *by design*: the **Trip Sensor** is a
+  trip wire rendered as a red line between two posts, and the **ASA 5505** has a red front
+  panel. On a 386-device model, an automated red-pixel count fell to 300 after the cabling
+  was fixed — and **all 300 were these icons**. A red pixel is only evidence once you have
+  cropped it and looked.
+
+- **A screenshot at the wrong moment.** Pixel-counting a render is a good objective measure
+  only if both images frame the same thing: a layout shift between builds moves devices out
+  of the crop, and the counts stop being comparable while still looking like data. Crop the
+  same canvas region from both and sanity-check the totals.
+
+- **"Incompatible File" on a file that then loads.** Several Packet Tracer instances launched
+  in quick succession can raise the dialog for a perfectly good file. Since the message is
+  Packet Tracer's *only* parse error, this is indistinguishable from Rule 8 by eye. Reproduce
+  a rejection, and always batch a known-good control with the suspect file.
+
+- **A load that "times out" but actually succeeded.** Packet Tracer raises two informational
+  prompts on opening a lab built from many templates — `Update Devices?` and
+  `Network Controller External Access`. A verifier that waits for the *"Please wait. Opening
+  file..."* window to clear never sees it clear, and reports a load timeout on a file that is
+  already open. The window list tells the two apart at a glance:
+
+  ```
+  ['Cisco Packet Tracer - /tmp/lab.pkt -', 'Please wait. Opening file...']      <- still loading
+  ['Cisco Packet Tracer - /tmp/lab.pkt -', 'Update Devices? -- Cisco P...']     <- loaded, asking
+  ```
+
+  Dismiss the prompts and screenshot what is drawn.
+
 Corollary: a gate that fails is not automatically a defect in your lab, and a gate that
 passes is not proof of correctness. Check *which* gate and *what* it actually measured
 before reacting to either.
+
+## Driving Packet Tracer's GUI under Xvfb
+
+Gate 5 and gate 6 need a real Packet Tracer, and the automation has sharp edges.
+
+- **Keyboard accelerators do not work.** With no window manager there is nothing to deliver
+  the accelerator, so `Alt+v` never opens the View menu and `ctrl+minus` only scrolls. Use
+  `xdotool` clicks on the toolbar.
+- **Know which toolbar button you are clicking.** A 4× crop of the toolbar is the only
+  reliable way to identify the icons. At 1600×1000 the zoom controls sit at y=38:
+  **zoom-in (`+` magnifier) x=382**, `R` (reset) x=416, **zoom-out (`−`) x=450**.
+  Clicking 384 repeatedly *zooms in* and produces a blank white workspace that reads exactly
+  like a render failure. It is not.
+- **Resize the window before zooming out.** A 3900×3900 page cannot fit a 950×460 viewport
+  at any readable zoom, so "the whole topology" is either one corner or a handful of specks.
+  `xdotool windowsize` to nearly fill the virtual screen first — Packet Tracer accepts about
+  1400×1840 under a 1400×1900 Xvfb screen.
+- **`xdotool mousemove --sync` can hang forever** without a window manager (it waits for a
+  pointer-motion event that never arrives). Drop `--sync`, and pass a timeout.
+- **Saving is unreliable.** `ctrl+s` is a keyboard accelerator, so it usually does nothing;
+  do not build a check that depends on Packet Tracer writing the file back. Read the verdict
+  from window titles and screenshots instead.
+
 
 ## Workflow — a full scored activity (`.pka`)
 
@@ -669,9 +978,12 @@ runs the grading engine.
 
 | Tool | Use |
 | --- | --- |
+| `tools/audit_links.py` | **run this before shipping.** Every cabled port against the config that should bring it up — missing interface block, shutdown, routed-and-trunk, trunk facing access. Exits non-zero on any finding (Rule 7) |
+| `tools/pt_accept.py` | **does Packet Tracer open it?** Verdict read from the window title, not from OCR. Batch a known-good control (Rule 8) |
 | `tools/check_layout.py` | **run this before shipping.** Device/label overlap, off-page devices, NN stats. Exits non-zero on any violation |
 | `tools/repack_layout.py` | migrate an existing lab's coordinates to a clean layout (idempotent) |
 | `tools/audit_ios_commands.py` | cross-check every emitted IOS line against what real Packet Tracer saves attest |
+| `tools/pt_runtime_verify.py` | open a lab in a real Packet Tracer under Xvfb and collect rendering, convergence and traffic evidence |
 | `tools/build_large_topology.py` | 3-tier campus: core/distribution/access/servers/wireless/IoT, real IOS configs. `--clients N`, `--prune-seed` |
 | `tools/build_configured_lab.py` | PC-SW-R-R-SW-PC with IPs, static routes |
 | `tools/build_wired_lab.py` | auto-cable devices to a switch backbone |
@@ -683,6 +995,21 @@ runs the grading engine.
 
 Shipped libraries: `tools/device_templates.json` (137 models, 78 modules),
 `tools/device_shapes.json`, `tools/network_seed.xml`, `tools/activity_skeleton.xml`.
+
+## A worked example of all eight rules
+
+`generators/jasdf_aewc/` is the 290-device lab that rules 1–6 came from. A second,
+386-device lab — an automated container terminal with 12 ship-to-shore cranes, 16
+yard blocks, an AGV fleet, a customs enclave and an industrial OT estate — was
+built on the same toolkit and is published with its full gate history at
+[`aacanadaa/large-scale-packet-tracer`](https://github.com/aacanadaa/large-scale-packet-tracer).
+Rules 7 and 8 come from it, and it is the reference for:
+
+- deriving each port's role from its peer instead of a hand-maintained list;
+- a four-tier port-name table with the rejected names recorded;
+- `pt_bisect.py`, `pt_render_check.py` and `pt_fullview.py` in practice;
+- what "all links are up" actually looks like once measured rather than eyeballed.
+
 
 ## Crypto backends
 
@@ -719,7 +1046,8 @@ Per-format key/IV bytes are in `pkt_core.crypto.keys.FORMATS`.
 | `docs/PKA_GENERATION.md` | authoring scored activities |
 | `docs/LARGE_TOPOLOGY_TEST.md` | 77-device topology, generated and opened |
 | `docs/PACKET_TRACER_VALIDATION.md` | verified in PT 7.3.1 and 9.0.1 |
-| `docs/ENTERPRISE_PROBLEMS.md` | 30 problems from a 290-device build, with status |
+| `docs/ENTERPRISE_PROBLEMS.md` | 38 problems from the 290-device JASDF build, with status — produced rules 1–6 |
+| `docs/ENTERPRISE_PROBLEMS_YAMLT.md` | 21 problems from the 386-device container-terminal build, with status — produced rules 7–8 |
 | `docs/POWER_INVESTIGATION.md` | the unpowered-device bug: cause, corpus evidence, fix |
 | `docs/LAYOUT_INVESTIGATION.md` | overlap measurements vs. 167 human-authored devices |
 
