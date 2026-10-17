@@ -909,10 +909,14 @@ A band of 60 icons on one row tells a reader that there are 60 devices and
 nothing else. They cannot find the fuel farm. Rows are a packing strategy, not an
 organisation.
 
-Packet Tracer's **cluster** is the feature that fixes this: it draws a labelled
-group box around a set of devices. The shape is not in the schema reference, but
-it is in Cisco's own labs — and **the AppImage ships 299 of them** (see "A corpus
-you already have" below). From `isa3000_dmz.pkt`:
+The fix is to place each **section** — a place a reader looks for — as its own
+compact block with space around it, and draw a boundary round it. Two warnings
+first, because the obvious approach is wrong in a way that is easy to miss.
+
+#### A cluster is a container, not a group box — it hides what it contains
+
+Packet Tracer's cluster looks like the right feature, and its XML is easy to
+find in Cisco's own labs:
 
 ```xml
 <CLUSTER>
@@ -928,8 +932,7 @@ you already have" below). From `isa3000_dmz.pkt`:
 </CLUSTER>
 ```
 
-It sits at `PACKETTRACER5/CLUSTERS/ROOTCLUSTER/CLUSTER`, and **membership is on the
-device**, not on the cluster:
+at `PACKETTRACER5/CLUSTERS/ROOTCLUSTER/CLUSTER`, with membership on the device:
 
 ```xml
 <WORKSPACE><LOGICAL>
@@ -937,29 +940,47 @@ device**, not on the cluster:
   <DEVCLUSTERID>2-{356f3541-...}#2</DEVCLUSTERID>
 ```
 
-`1-1` is the root cluster every device belongs to by default; a section is
-`2-{uuid}#2` with `<CLOUDID>1-1</CLOUDID>`. Note the cluster carries no width or
-height — the box is derived from its members, so **placement is what decides the
-shape**, and the section must be a compact block or the box wraps the page.
+**But a cluster is a collapsible container.** Packet Tracer renders it as a
+single icon carrying the cluster's name, and its member devices are *inside* it —
+invisible until someone expands it by hand. Measured on a three-device probe:
 
-Two other root-level drawing layers, same provenance, if you want boxes without
-grouping:
+```
+3 PCs, one of them in a cluster named "Section A"
+  -> renders as: PC-PT A1 --- PC-PT A2 ... and ONE icon captioned "Section A"
+```
+
+Scale that to a 392-device lab in 16 clusters and the entire model appears to
+vanish: sixteen icons on an empty page. That is what "the render never finished"
+looked like for two days of captures — the file was fine and the devices were
+simply collapsed. **Do not use a cluster to draw a labelled box around devices
+you want to see.**
+
+#### Draw a rectangle instead
+
+A `RECTANGLE` is a plain drawing-layer element: no grouping, no collapsing,
+devices stay visible. Same provenance, `PACKETTRACER5/RECTANGLES/RECTANGLE`:
 
 ```xml
 <RECTANGLE uuid="{...}">
   <TopLeftX>353</TopLeftX><TopLeftY>1001</TopLeftY>
   <BottomRightX>764</BottomRightX><BottomRightY>1375</BottomRightY>
-  <Color><Red>255</Red><Green>170</Green><Blue>255</Blue></Color>
-  <Filled OUTLINED="true" OUTLINECOLOR="#aaaaff">0</Filled>   <!-- 0 = hollow -->
+  <Color><Red>21</Red><Green>101</Green><Blue>192</Blue></Color>
+  <Filled OUTLINED="true" OUTLINECOLOR="#1565c0">0</Filled>   <!-- 0 = hollow -->
   <RECTCLUSTERID>1-1</RECTCLUSTERID>
   <MEM_ADDR>...</MEM_ADDR>
 </RECTANGLE>
 ```
 
-(`RECTANGLES` is at `PACKETTRACER5/RECTANGLES/RECTANGLE`; `LINES`, `ELLIPSES` and
-`POLYGONS` are siblings with the same geometry idiom. Logical-canvas `NOTE`
-elements with a `<TEXT>` live under `PHYSICALWORKSPACE/.../NOTES/NOTE`, so a text
-label on the logical canvas is *not* a NOTE — use the cluster name.)
+(`LINES`, `ELLIPSES` and `POLYGONS` are siblings with the same geometry idiom.)
+
+#### You cannot put a name on the logical canvas
+
+There is **no logical-canvas text element**. `NOTE` exists, but every instance
+across 293 shipped labs sits under
+`PHYSICALWORKSPACE/.../NOTES/NOTE`, i.e. it annotates the *physical* view; there
+is no root-level `NOTES` and no "note" device type. So a section boundary can be
+drawn on the canvas, but its *name* has to live in the diagram and the documents.
+Plan for that rather than discovering it after wiring up a naming scheme.
 
 **Choose section granularity to fit.** Measured on a 392-device model, per-cluster
 blocks (a switch plus its own access devices) do **not** fit: 392 boxes at a
@@ -977,7 +998,7 @@ Effect on that model, same network throughout:
 | mean cable | 1,142 u | **515 u** (−55%) |
 
 Cables get short because a section is a compact block, so most cables are
-intra-section. The boxes also make the picture *navigable*, which no metric
+intra-section. The boundaries also make the picture *navigable*, which no metric
 captures.
 
 #### A corpus you already have — 299 Cisco-authored labs in the AppImage
