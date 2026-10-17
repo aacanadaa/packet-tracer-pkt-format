@@ -1,6 +1,6 @@
 ---
 name: packet-tracer-pkt-format
-description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the twelve rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
+description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the fourteen rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
 ---
 
 # packet-tracer-pkt-format
@@ -35,7 +35,7 @@ plumbing, and it is the one that reports "corrupted Physical Workspace data".
 ## When to use this skill
 
 - Build a network lab (`.pkt`) from code or a JSON spec
-- Build a lab at **scale** — see the twelve rules and the gate chain below
+- Build a lab at **scale** — see the fourteen rules and the gate chain below
 - Build a **scored activity** (`.pka`) with instructions, grading and a wizard password
 - Read / inspect / diff / edit existing Packet Tracer files
 - Convert a topology to graphviz, netbox or containerlab
@@ -251,7 +251,7 @@ deliberate — silently renaming hides authoring bugs. Either:
 `lab.device_names()` lists what is taken. Note: device `<NAME>` lives under
 `<ENGINE>`, not as a direct child of `<DEVICE>`.
 
-## Authoring at scale — twelve rules, learned by shipping broken labs
+## Authoring at scale — fourteen rules, learned by shipping broken labs
 
 A 290-device enterprise model was generated, structurally validated, and shipped
 with `RESULT: PASSED (0 warnings)` — and it was still wrong. The validator was
@@ -263,10 +263,11 @@ shipped with **87 cabled ports that nothing configured**, five firewalls whose
 own outside port was shut, and three port names that made the entire file refuse
 to open. Rules 7 and 8 come from that second build.
 
-These twelve rules are the generalisation. They are not style advice — each one
+These fourteen rules are the generalisation. They are not style advice — each one
 corresponds to a defect that reached a delivered file. Rules 1–8 come from the
 first two large builds; rules 9–12 come from a third, a 392-device air base,
-where the layout itself was the defect.
+where the layout itself was the defect; rules 13–14 come from
+reorganising that lab into labelled sections.
 
 All five are now repaired in the delivered file, and the repair is gated:
 
@@ -902,6 +903,126 @@ and anything the explicit map did not mention is completed from the cabling and
 recorded in the build report. The explicit map then only has to name the
 uplinks — and a table that short is a table that stays correct.
 
+### Rule 13 — a band of loose icons is still a chain: give the model *sections*
+
+A band of 60 icons on one row tells a reader that there are 60 devices and
+nothing else. They cannot find the fuel farm. Rows are a packing strategy, not an
+organisation.
+
+Packet Tracer's **cluster** is the feature that fixes this: it draws a labelled
+group box around a set of devices. The shape is not in the schema reference, but
+it is in Cisco's own labs — and **the AppImage ships 299 of them** (see "A corpus
+you already have" below). From `isa3000_dmz.pkt`:
+
+```xml
+<CLUSTER>
+  <NAME translate="true">Internet</NAME>
+  <X>1223</X><Y>292</Y>
+  <CLOUDID>1-1</CLOUDID>
+  <CLUSTERID>2-{356f3541-68b0-4eea-a043-3eab794b0192}#2</CLUSTERID>
+  <MEM_ADDR>2569540347280</MEM_ADDR>
+  <CLUSTER_BG_IMAGE isanim="false" />
+  <CLUSTER_EMBEDDED_BG_IMAGE />
+  <CLUSTER_ICON_IMAGE>../art/Workspace/Logical/iCluster.png</CLUSTER_ICON_IMAGE>
+  <TILED_BG>false</TILED_BG>
+</CLUSTER>
+```
+
+It sits at `PACKETTRACER5/CLUSTERS/ROOTCLUSTER/CLUSTER`, and **membership is on the
+device**, not on the cluster:
+
+```xml
+<WORKSPACE><LOGICAL>
+  <X>948.5</X><Y>225</Y>
+  <DEVCLUSTERID>2-{356f3541-...}#2</DEVCLUSTERID>
+```
+
+`1-1` is the root cluster every device belongs to by default; a section is
+`2-{uuid}#2` with `<CLOUDID>1-1</CLOUDID>`. Note the cluster carries no width or
+height — the box is derived from its members, so **placement is what decides the
+shape**, and the section must be a compact block or the box wraps the page.
+
+Two other root-level drawing layers, same provenance, if you want boxes without
+grouping:
+
+```xml
+<RECTANGLE uuid="{...}">
+  <TopLeftX>353</TopLeftX><TopLeftY>1001</TopLeftY>
+  <BottomRightX>764</BottomRightX><BottomRightY>1375</BottomRightY>
+  <Color><Red>255</Red><Green>170</Green><Blue>255</Blue></Color>
+  <Filled OUTLINED="true" OUTLINECOLOR="#aaaaff">0</Filled>   <!-- 0 = hollow -->
+  <RECTCLUSTERID>1-1</RECTCLUSTERID>
+  <MEM_ADDR>...</MEM_ADDR>
+</RECTANGLE>
+```
+
+(`RECTANGLES` is at `PACKETTRACER5/RECTANGLES/RECTANGLE`; `LINES`, `ELLIPSES` and
+`POLYGONS` are siblings with the same geometry idiom. Logical-canvas `NOTE`
+elements with a `<TEXT>` live under `PHYSICALWORKSPACE/.../NOTES/NOTE`, so a text
+label on the logical canvas is *not* a NOTE — use the cluster name.)
+
+**Choose section granularity to fit.** Measured on a 392-device model, per-cluster
+blocks (a switch plus its own access devices) do **not** fit: 392 boxes at a
+200-unit pitch need 11.8 M units² of a 14.4 M unit² page, and the blocks overflow
+to y≈4,265. Sixteen sections fit comfortably. Sections are coarse enough to be
+places; clusters are too fine to be page units.
+
+Effect on that model, same network throughout:
+
+| | before | after |
+| --- | ---: | ---: |
+| cable crossings | 1,645 | **1,079** (−34%) |
+| crossings per cable | 4.43 | **2.90** |
+| median cable | 888 u | **410 u** (−54%) |
+| mean cable | 1,142 u | **515 u** (−55%) |
+
+Cables get short because a section is a compact block, so most cables are
+intra-section. The boxes also make the picture *navigable*, which no metric
+captures.
+
+#### A corpus you already have — 299 Cisco-authored labs in the AppImage
+
+`corpus/fetch_corpus.py` is not the only way to get real Packet Tracer files.
+Packet Tracer ships its own example labs:
+
+```console
+$ cd /tmp && /opt/pt/packettracer.AppImage --appimage-extract >/dev/null
+$ find squashfs-root/opt/pt/saves -name '*.pkt' | wc -l
+293
+```
+
+They are current-version, Cisco-authored, and cover switching, IPv6, IoT, OT,
+cyber and automation — including files that use the drawing layers this document
+otherwise cannot show you an example of. `pt9.decode_bytes(open(f,'rb').read(),
+"pkt")` reads them directly. Mine them before downloading anything:
+
+```console
+$ python3 - <<'EOF'
+import glob, xml.etree.ElementTree as ET
+from pkt_core import decode_bytes
+for f in glob.glob("/tmp/squashfs-root/opt/pt/saves/**/*.pkt", recursive=True):
+    root = ET.fromstring(decode_bytes(open(f,'rb').read()).xml)
+    if list(root.iter("CLUSTER")):
+        print("has clusters:", f)
+EOF
+```
+
+### Rule 14 — three things that make a build non-reproducible, all invisible
+
+A published SHA-256 that cannot be re-derived is worse than no hash. All three of
+these produce a *successful* build whose bytes differ between runs:
+
+| Source | Why | Fix |
+| --- | --- | --- |
+| `uuid.uuid4()` for generated ids (cluster ids, synthetic refs) | random per run | `uuid.uuid5(NAMESPACE_URL, stable_string)` |
+| `hash(some_string)` for a synthetic numeric field | Python randomises string hashing **per process** (`PYTHONHASHSEED`) | derive from the stable id, e.g. `uuid5(...).int % 10**12` |
+| seeding a walk from a `set` | set iteration order varies between processes, so the *device order* changes — and with it the whole layout | keep an ordered list, or break ties on the creation index |
+
+The third is the expensive one: on a 392-device model it changed **84,658 lines**
+of XML between two runs. Verify by building twice and comparing digests, not by
+reading the code — and note that a diff of two builds is the fastest way to find
+which of the three you have.
+
 ## Before you ship — run the gates, in this order
 
 Rules 1–8 are disciplines; these are the commands that *enforce* them. Each exits
@@ -1133,7 +1254,7 @@ runs the grading engine.
 Shipped libraries: `tools/device_templates.json` (137 models, 78 modules),
 `tools/device_shapes.json`, `tools/network_seed.xml`, `tools/activity_skeleton.xml`.
 
-## A worked example of all twelve rules
+## A worked example of all fourteen rules
 
 `generators/jasdf_aewc/` is the 290-device lab that rules 1–6 came from. A second,
 386-device lab — an automated container terminal with 12 ship-to-shore cranes, 16
