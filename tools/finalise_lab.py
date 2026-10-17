@@ -256,6 +256,11 @@ def main(argv: list[str] | None = None) -> int:
                     help='JSON list of {"name","network","new"} pool renames')
     ap.add_argument("--no-repack", action="store_true",
                     help="leave coordinates alone")
+    ap.add_argument("--tiers", type=Path, default=None,
+                    help="JSON tier map for the repack, tried before the "
+                         "built-in name rules.  Without it a lab whose hostnames "
+                         "do not match those rules collapses into one 'misc' "
+                         "band -- see lab_api.load_tier_map")
     ap.add_argument("--no-sanitize", action="store_true",
                     help="leave template service records alone")
     ap.add_argument("--dry-run", action="store_true",
@@ -271,6 +276,13 @@ def main(argv: list[str] | None = None) -> int:
     renames: list[dict[str, str]] = []
     if args.rename_pools is not None:
         renames = json.loads(args.rename_pools.read_text())
+
+    # The repack groups devices into bands by name.  The built-in rules are one
+    # lab's naming convention, so a second lab must supply its own or every
+    # device lands in a single band.
+    if args.tiers is not None:
+        n = lab_api.load_tier_map(args.tiers)
+        print(f"tier map: {n} caller rule(s) from {args.tiers}")
 
     rc = 0
     for lab in args.labs:

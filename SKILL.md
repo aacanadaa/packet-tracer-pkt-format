@@ -1,6 +1,6 @@
 ---
 name: packet-tracer-pkt-format
-description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the eight rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
+description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the twelve rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
 ---
 
 # packet-tracer-pkt-format
@@ -35,7 +35,7 @@ plumbing, and it is the one that reports "corrupted Physical Workspace data".
 ## When to use this skill
 
 - Build a network lab (`.pkt`) from code or a JSON spec
-- Build a lab at **scale** — see the eight rules and the gate chain below
+- Build a lab at **scale** — see the twelve rules and the gate chain below
 - Build a **scored activity** (`.pka`) with instructions, grading and a wizard password
 - Read / inspect / diff / edit existing Packet Tracer files
 - Convert a topology to graphviz, netbox or containerlab
@@ -251,7 +251,7 @@ deliberate — silently renaming hides authoring bugs. Either:
 `lab.device_names()` lists what is taken. Note: device `<NAME>` lives under
 `<ENGINE>`, not as a direct child of `<DEVICE>`.
 
-## Authoring at scale — eight rules, learned by shipping broken labs
+## Authoring at scale — twelve rules, learned by shipping broken labs
 
 A 290-device enterprise model was generated, structurally validated, and shipped
 with `RESULT: PASSED (0 warnings)` — and it was still wrong. The validator was
@@ -263,8 +263,10 @@ shipped with **87 cabled ports that nothing configured**, five firewalls whose
 own outside port was shut, and three port names that made the entire file refuse
 to open. Rules 7 and 8 come from that second build.
 
-These eight rules are the generalisation. They are not style advice — each one
-corresponds to a defect that reached a delivered file.
+These twelve rules are the generalisation. They are not style advice — each one
+corresponds to a defect that reached a delivered file. Rules 1–8 come from the
+first two large builds; rules 9–12 come from a third, a 392-device air base,
+where the layout itself was the defect.
 
 All five are now repaired in the delivered file, and the repair is gated:
 
@@ -767,6 +769,139 @@ model = (t.get("model") or (t.text or "")).strip()
   the failing subset. Note that a failure may need devices from both halves —
   "neither half fails alone" is a real outcome, not a bug in the tool.
 
+### Rule 9 — the single writer's tier rules are one lab's naming convention
+
+`finalise_lab.py` is the single writer, and its repack is not optional in
+practice: it re-gates the bytes actually written. The repack groups devices into
+horizontal bands by calling `lab_api.tier_for_name(name)`, whose built-in rules
+are a **name-prefix table for one particular lab**:
+
+```python
+_TIER_RULES = (("airborne", r"^(E767|E2D|E2C|RC2)-\d\d-"), ("crc", r"^CRC-"),
+               ("backbone", r"^(JADGE-BB-|CORE-RTR-|WAN-EDGE-|...)"), ...)
+```
+
+A second lab with its own hostnames matches none of them, so `tier_for_name`
+returns `"misc"` for almost everything. **Every device collapses into one band**,
+and the repack packs that band row-major — so a switch and its access devices end
+up at opposite ends of the page. Measured on a 392-device lab: **361 of 392
+devices matched no rule**, and a tenant switch sat **3,538 units** from its own
+workstation.
+
+Nothing fails. The repack succeeds, the audit passes, the round-trip is
+byte-exact, and the picture is a tangle. It is the same shape as Rule 6 — a
+check that asks "did the step run?" cannot see that the step did the wrong
+thing.
+
+The fix is to make the rules overridable and have each lab ship its own:
+
+```python
+lab_api.load_tier_map("build/tier_map.json")   # tried before the built-ins
+```
+```console
+$ tools/finalise_lab.py --templates .../device_templates.json \
+      --tiers build/tier_map.json lab.pkt
+```
+
+Both shapes are accepted: `{"rules": [{"tier": ..., "patterns": [...]}]}` or
+`{"tier": ["pattern", ...]}`. Generate the map from the same table your diagram
+uses, so the two can never disagree — three separate lists (generator grouping,
+repack grouping, diagram grouping) is how this goes wrong.
+
+### Rule 10 — a blank workspace is not proof that a lab failed to render
+
+Three separate things look identical from outside, and only one of them is a
+defect in your lab.
+
+| What you see | What it actually is |
+| --- | --- |
+| `load-timeout` after 300 s, progress dialog still listed | **normal at scale.** A ~390-device lab takes **8–10 minutes** to parse and draw (RSS ≈ 4.2–5.0 GB), and up to ~25 minutes if another Packet Tracer is running |
+| the progress dialog never clears | Packet Tracer raises a modal prompt while it is still up, so "the dialog went away" is not a completion signal. The workspace draws *behind* the prompt |
+| an empty untitled window, no prompt | **the document was closed** — see below |
+
+The prompt reads *"This file contains N device(s) that have outdated run-time
+scripts"* and offers **Yes** / **No** / Update and Make a Copy. **Return activates
+the default, Yes**, which rewrites every affected device's run-time script — on a
+392-device lab that closes the document and leaves an empty 541 MB process.
+**Escape selects No** and the loaded topology survives.
+
+Two more ways to break a load that are not about the file:
+
+* **Do not resize the document window before the load finishes.** Packet Tracer
+  restores its own geometry when a load completes; a tool that resizes first and
+  waits second ends up driving a window that has already been replaced.
+* **Wait for evidence, not for a dialog.** The usable signal is "is anything
+  drawn on the canvas" — saturated pixels inside a canvas rectangle that is
+  derived from the window geometry in **both axes**. A fixed rectangle samples
+  the device palette on Packet Tracer's default 950×700 window (whose icons are
+  highly saturated) and reports a blank workspace as loaded.
+
+And the control that settles it: with **no interaction at all**, at 10.5 minutes
+the title still carried the file path, the prompt was up, RSS was 4.95 GB and the
+canvas had 4,578 saturated pixels — loaded, drawn and stable. Batch a known-good
+control with every capture; if the control renders and your lab does not, then
+you have a lab problem, and if neither renders you have a harness problem.
+
+### Rule 11 — the packer packs in *document order*, so the document order is the layout
+
+`Layout.place()` is called in the order the `<DEVICE>` elements appear, and each
+band is filled row-major. So the order you *create* devices in is the order they
+are packed in, and that is the difference between a readable model and spaghetti:
+
+* **Emit each band as a breadth-first walk of its own cable graph.** A band whose
+  devices are created "switch, then everything else" packs its switch at one end
+  and its access devices at the other.
+* **Size the chunks to one packing row.** A cluster that straddles a row boundary
+  gets its switch at one end of the page and its children at the other; a chunk
+  that *is* a row cannot straddle.
+* **Centre the hub in its row.** A hub at one end is ~3,400 units from the child
+  at the other; in the middle it is at most half that, and its fan is symmetric.
+* **Order the bands by the cable graph, not the narrative.** A fan is shortest
+  when its source sits at the centroid of its destinations. Measured on the
+  392-device lab, **70% of all crossings involved a core-band cable** with the
+  core at the top; moving it to the middle of the band order cut crossings.
+
+Measured effect of all four, on one lab: crossings **1,645 → 1,321 (−20%)**,
+95th-percentile cable length **2,916 → 2,408 (−17%)**, mean **1,142 → 992
+(−13%)**. Reordering is free — it changes nothing about the network.
+
+**At ~390 devices the page is saturated, and that is the binding constraint.**
+392 label-inclusive boxes at a 200-unit pitch need about 11.8 M units² of a
+14.4 M unit² page. Cluster-block placement *with gaps* does not fit — measured,
+it overflows to y≈4,265 — which is exactly why the row-major packer wraps
+clusters. If a model must be genuinely tidy, that is an argument for fewer
+devices per page, not for a cleverer packer.
+
+**Measure it, do not eyeball it.** `tools/check_readability.py` reports crossings,
+crossings per cable, and cable-length min/median/p95/max, plus which band each
+cable belongs to:
+
+```console
+$ python3 tools/check_readability.py lab.pkt --max-crossings-per-cable 4.0
+```
+
+A lab can pass `check_layout.py` — no overlap, nothing off-page, no coincident
+pair — and still measure 4.4 crossings per cable. Geometry and legibility are
+different properties, and only one of them has a stock gate.
+
+### Rule 12 — derive a port's VLAN from its peer, not from a table beside it
+
+The same discipline as Rule 7, applied to Layer 2. A hand-maintained
+port-to-VLAN map drifts from the cabling, and it drifts silently: the port still
+comes up, it is just in the wrong VLAN, or it is written once as a trunk and once
+as an access port and the parser applies whichever came last.
+
+Three of the defects found on a 392-device build were exactly this — uplinks that
+were *also* declared as access ports, tank and level monitors sharing one port
+range (two cables on one port), and a zone router that was placed, cabled and
+addressed but never configured at all.
+
+The rule: **a port's access VLAN is the VLAN of the device plugged into it**,
+taken from that device's own default gateway (`10.<site>.<vlan>.1` → `<vlan>`),
+and anything the explicit map did not mention is completed from the cabling and
+recorded in the build report. The explicit map then only has to name the
+uplinks — and a table that short is a table that stays correct.
+
 ## Before you ship — run the gates, in this order
 
 Rules 1–8 are disciplines; these are the commands that *enforce* them. Each exits
@@ -779,12 +914,13 @@ the repo root with the venv active.
 | # | Command | Proves | Non-zero when |
 |---|---|---|---|
 | 0 | `python3 tools/audit_links.py lab.pkt` | **every cabled port is brought up by the configuration that ships with it** — no missing interface block, no shutdown, no routed-and-trunk port, no trunk facing an access port | any link endpoint would not come up (exit 1) |
-| 1 | `python3 tools/finalise_lab.py lab.pkt --templates tools/device_templates.json` | the single writer: sanitises un-authored fields, repacks, then **re-gates the bytes actually written** — layout, audit, and byte-exact decode round-trip | layout violation, audit finding, or round-trip DIFFERS (exit 1) |
+| 1 | `python3 tools/finalise_lab.py lab.pkt --templates tools/device_templates.json --tiers build/tier_map.json` | the single writer: sanitises un-authored fields, repacks, then **re-gates the bytes actually written** — layout, audit, and byte-exact decode round-trip | layout violation, audit finding, or round-trip DIFFERS (exit 1) |
 | 2 | `python3 tools/check_layout.py lab.pkt` | geometry — label boxes, on-page, coincidence, NN spacing | any overlap, off-page icon, coincident pair, unreadable file (exit 1) |
-| 3 | `pkt audit lab.pkt --templates tools/device_templates.json` | raw **and** distinct counts per service family, template leftovers | any duplicate — i.e. a count that was never distinct (exit 1) |
-| 4 | `python3 tools/audit_ios_commands.py --artifact lab.pkt --corpus <corpus>` | every config line against the attested corpus | a **suspicious** signature (exit **2**). Unattested-but-plausible lines are reported and do *not* fail — 136 of 235 signatures are normally UNATTESTED, so exit 0 here is the expected state |
-| 5 | `python3 tools/pt_accept.py lab.pkt control.pkt` | Packet Tracer actually opens it — verdict read from the window title | `Incompatible File` for the lab but not the control (exit 1) |
-| 6 | `python3 tools/pt_runtime_verify.py --artifact lab.pkt` | it renders, converges and passes traffic | load failure, unreachable host |
+| 3 | `python3 tools/check_readability.py lab.pkt` | **the model is legible** — crossings per cable and cable-length percentiles, exiting non-zero above a threshold. Geometry and legibility are different properties and `check_layout.py` only measures the first |
+| 4 | `pkt audit lab.pkt --templates tools/device_templates.json` | raw **and** distinct counts per service family, template leftovers | any duplicate — i.e. a count that was never distinct (exit 1) |
+| 5 | `python3 tools/audit_ios_commands.py --artifact lab.pkt --corpus <corpus>` | every config line against the attested corpus | a **suspicious** signature (exit **2**). Unattested-but-plausible lines are reported and do *not* fail — 136 of 235 signatures are normally UNATTESTED, so exit 0 here is the expected state |
+| 6 | `python3 tools/pt_accept.py lab.pkt control.pkt` | Packet Tracer actually opens it — verdict read from the window title | `Incompatible File` for the lab but not the control (exit 1) |
+| 7 | `python3 tools/pt_runtime_verify.py --artifact lab.pkt` | it renders, converges and passes traffic | load failure, unreachable host |
 
 Gate 1's round-trip check is the library's core promise tested on real output, not on a
 fixture: the bytes written are decoded again and compared. If that line says `DIFFERS`, the
@@ -794,17 +930,17 @@ artifact is not shippable no matter what else passed.
 Packet Tracer. It is worth running before gate 1, because a lab full of dead links
 otherwise passes everything and looks finished.
 
-**Gate 5 is the only one that can catch Rule 8** — a port name Packet Tracer refuses.
-Gate 6 subsumes it, but gate 5 returns in seconds where gate 6 takes minutes, so run it
+**Gate 6 is the only one that can catch Rule 8** — a port name Packet Tracer refuses.
+Gate 7 subsumes it, but gate 6 returns in seconds where gate 7 takes minutes, so run it
 first when iterating on cabling.
 
-Gate 4 needs the reference corpus, which is *not* committed (see `corpus/README.md`;
+Gate 5 needs the reference corpus, which is *not* committed (see `corpus/README.md`;
 `python3 corpus/fetch_corpus.py` reproduces it). Point `--corpus` at wherever that put the
 files — the decoded result is cached in `build/ios_attestation.json`, which records the
 `corpus_dir` it used, so a re-run is fast. On the shipped lab it decodes 1,058 files and
 reports 0 suspicious.
 
-Gates 0–3 are static and fast. Gate 4 needs a cold-cache corpus decode first
+Gates 0–4 are static and fast. Gate 5 needs a cold-cache corpus decode first
 (~1–3 min for 1,058 files), then it is cached. **Gate 6 is the only one that can catch
 problem 8** (a bearer that is structurally perfect and functionally dead) and problem 24
 (structure ≠ function). If you can only run one, run gate 6 — it needs PT under Xvfb, which
@@ -981,6 +1117,7 @@ runs the grading engine.
 | `tools/audit_links.py` | **run this before shipping.** Every cabled port against the config that should bring it up — missing interface block, shutdown, routed-and-trunk, trunk facing access. Exits non-zero on any finding (Rule 7) |
 | `tools/pt_accept.py` | **does Packet Tracer open it?** Verdict read from the window title, not from OCR. Batch a known-good control (Rule 8) |
 | `tools/check_layout.py` | **run this before shipping.** Device/label overlap, off-page devices, NN stats. Exits non-zero on any violation |
+| `tools/check_readability.py` | **run this before shipping too.** Crossings, crossings per cable, cable-length percentiles, per band. A lab can pass `check_layout.py` and still measure 4.4 crossings per cable |
 | `tools/repack_layout.py` | migrate an existing lab's coordinates to a clean layout (idempotent) |
 | `tools/audit_ios_commands.py` | cross-check every emitted IOS line against what real Packet Tracer saves attest |
 | `tools/pt_runtime_verify.py` | open a lab in a real Packet Tracer under Xvfb and collect rendering, convergence and traffic evidence |
@@ -996,7 +1133,7 @@ runs the grading engine.
 Shipped libraries: `tools/device_templates.json` (137 models, 78 modules),
 `tools/device_shapes.json`, `tools/network_seed.xml`, `tools/activity_skeleton.xml`.
 
-## A worked example of all eight rules
+## A worked example of all twelve rules
 
 `generators/jasdf_aewc/` is the 290-device lab that rules 1–6 came from. A second,
 386-device lab — an automated container terminal with 12 ship-to-shore cranes, 16

@@ -183,9 +183,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("src", type=Path, help="input .pkt/.pka or decoded XML")
     ap.add_argument("dst", nargs="?", type=Path, default=None,
                     help="output path (default: rewrite src in place)")
+    ap.add_argument("--tiers", type=Path, default=None,
+                    help="JSON tier map for the repack, tried before the "
+                         "built-in name rules (see lab_api.load_tier_map)")
     ap.add_argument("--dry-run", action="store_true",
                     help="report metrics without writing")
     args = ap.parse_args(argv)
+    # The repack groups devices into bands by name, and the built-in rules are
+    # one lab's naming convention: a second lab matches none of them and every
+    # device lands in a single 'misc' band.
+    if args.tiers is not None:
+        n = lab_api.load_tier_map(args.tiers)
+        print(f"tier map: {n} caller rule(s) from {args.tiers}")
     dst = args.dst or args.src
 
     try:

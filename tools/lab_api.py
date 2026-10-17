@@ -47,6 +47,7 @@ devices for a clean workspace.
 See docs/CAPABILITIES.md for the full documented model.
 """
 import os
+import json
 import re
 import copy
 import hashlib
@@ -282,8 +283,54 @@ _TIER_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
+# Caller-supplied tier rules, tried before the built-in ones.  The built-in
+# rules are one lab's naming convention; a second lab with its own hostnames
+# matches none of them, and every device collapses into ``misc`` -- one enormous
+# band, which repacks into exactly the tangle the bands existed to prevent.
+# Silently, because the repack itself still succeeds.
+_EXTRA_TIER_RULES: list[tuple[str, re.Pattern[str]]] = []
+
+
+def load_tier_map(path: "str | os.PathLike[str] | None") -> int:
+    """Load caller tier rules, tried before the built-in ones.
+
+    Accepts either shape, so a lab can ship whatever it already has:
+
+        {"rules": [{"tier": "T1-edge", "patterns": ["^CARRIER-", "^FW-"]}]}
+        {"T1-edge": ["^CARRIER-", "^FW-"]}
+
+    Patterns are regular expressions matched with ``search``, exactly like the
+    built-in rules.  Returns the number of rules loaded.
+    """
+    global _EXTRA_TIER_RULES
+    if path is None:
+        _EXTRA_TIER_RULES = []
+        return 0
+    with open(path, encoding="utf-8") as fh:
+        blob = json.load(fh)
+    rows: list[tuple[str, list[str]]] = []
+    if isinstance(blob, dict) and "rules" in blob:
+        for entry in blob["rules"]:
+            rows.append((entry["tier"], list(entry["patterns"])))
+    elif isinstance(blob, dict):
+        for tier, pats in blob.items():
+            rows.append((tier, list(pats)))
+    else:
+        raise ValueError(f"tier map {path}: expected an object")
+    _EXTRA_TIER_RULES = [(t, re.compile("|".join(f"(?:{p})" for p in pats)))
+                         for t, pats in rows]
+    return len(_EXTRA_TIER_RULES)
+
+
 def tier_for_name(name: str) -> str:
-    """Map a device name onto its semantic tier band (see :class:`Layout`)."""
+    """Map a device name onto its semantic tier band (see :class:`Layout`).
+
+    Caller rules from :func:`load_tier_map` win; the built-in rules are one
+    lab's naming convention and are only a fallback.
+    """
+    for tier, rx in _EXTRA_TIER_RULES:
+        if rx.search(name):
+            return tier
     for tier, rx in _TIER_RULES:
         if rx.search(name):
             return tier
