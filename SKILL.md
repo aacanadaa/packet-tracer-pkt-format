@@ -1,6 +1,6 @@
 ---
 name: packet-tracer-pkt-format
-description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the fourteen rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
+description: Read, author, modify and re-serialise Cisco Packet Tracer .pkt labs and scored .pka activities entirely offline. Covers both container families (PT 4.1 through 9.0.1), a byte-exact codec, a typed Python model, generators for full topologies and graded activities, and the thirteen rules for authoring large labs that actually work. Use when a task involves opening, inspecting, diffing, editing or creating Packet Tracer files, or building a lab at scale.
 ---
 
 # packet-tracer-pkt-format
@@ -35,7 +35,7 @@ plumbing, and it is the one that reports "corrupted Physical Workspace data".
 ## When to use this skill
 
 - Build a network lab (`.pkt`) from code or a JSON spec
-- Build a lab at **scale** — see the fourteen rules and the gate chain below
+- Build a lab at **scale** — see the thirteen rules and the gate chain below
 - Build a **scored activity** (`.pka`) with instructions, grading and a wizard password
 - Read / inspect / diff / edit existing Packet Tracer files
 - Convert a topology to graphviz, netbox or containerlab
@@ -251,7 +251,7 @@ deliberate — silently renaming hides authoring bugs. Either:
 `lab.device_names()` lists what is taken. Note: device `<NAME>` lives under
 `<ENGINE>`, not as a direct child of `<DEVICE>`.
 
-## Authoring at scale — fourteen rules, learned by shipping broken labs
+## Authoring at scale — thirteen rules, learned by shipping broken labs
 
 A 290-device enterprise model was generated, structurally validated, and shipped
 with `RESULT: PASSED (0 warnings)` — and it was still wrong. The validator was
@@ -263,11 +263,11 @@ shipped with **87 cabled ports that nothing configured**, five firewalls whose
 own outside port was shut, and three port names that made the entire file refuse
 to open. Rules 7 and 8 come from that second build.
 
-These fourteen rules are the generalisation. They are not style advice — each one
+These thirteen rules are the generalisation. They are not style advice — each one
 corresponds to a defect that reached a delivered file. Rules 1–8 come from the
-first two large builds; rules 9–12 come from a third, a 392-device air base,
-where the layout itself was the defect; rules 13–14 come from
-reorganising that lab into labelled sections.
+first two large builds; rules 9–13 come from a third, a 392-device air base, where
+the layout itself was the defect. Rule 11 is the procedure that sorts a large
+topology; it is the one to read first if that is what you came for.
 
 All five are now repaired in the delivered file, and the repair is gated:
 
@@ -843,47 +843,148 @@ canvas had 4,578 saturated pixels — loaded, drawn and stable. Batch a known-go
 control with every capture; if the control renders and your lab does not, then
 you have a lab problem, and if neither renders you have a harness problem.
 
-### Rule 11 — the packer packs in *document order*, so the document order is the layout
+### Rule 11 — sorting a large topology: seven steps, in this order
 
-`Layout.place()` is called in the order the `<DEVICE>` elements appear, and each
-band is filled row-major. So the order you *create* devices in is the order they
-are packed in, and that is the difference between a readable model and spaghetti:
+Rule 2 and the gates get a lab **legal**: nothing overlaps, nothing is off the
+page. They do not make it **readable**. A lab can pass every geometry check and
+still measure 4.4 cable crossings per cable — a wall of lines in which a reader
+cannot find the fuel farm.
 
-* **Emit each band as a breadth-first walk of its own cable graph.** A band whose
-  devices are created "switch, then everything else" packs its switch at one end
-  and its access devices at the other.
-* **Size the chunks to one packing row.** A cluster that straddles a row boundary
-  gets its switch at one end of the page and its children at the other; a chunk
-  that *is* a row cannot straddle.
-* **Centre the hub in its row.** A hub at one end is ~3,400 units from the child
-  at the other; in the middle it is at most half that, and its fan is symmetric.
-* **Order the bands by the cable graph, not the narrative.** A fan is shortest
-  when its source sits at the centroid of its destinations. Measured on the
-  392-device lab, **70% of all crossings involved a core-band cable** with the
-  core at the top; moving it to the middle of the band order cut crossings.
+This is the procedure that fixes that. Measured on a 392-device model it took the
+same network from **1,645 crossings to 1,079** and from a **mean cable of 1,142
+units to 515**. Do the steps in order; each is cheap and each is justified by a
+number.
 
-Measured effect of all four, on one lab: crossings **1,645 → 1,321 (−20%)**,
-95th-percentile cable length **2,916 → 2,408 (−17%)**, mean **1,142 → 992
-(−13%)**. Reordering is free — it changes nothing about the network.
-
-**At ~390 devices the page is saturated, and that is the binding constraint.**
-392 label-inclusive boxes at a 200-unit pitch need about 11.8 M units² of a
-14.4 M unit² page. Cluster-block placement *with gaps* does not fit — measured,
-it overflows to y≈4,265 — which is exactly why the row-major packer wraps
-clusters. If a model must be genuinely tidy, that is an argument for fewer
-devices per page, not for a cleverer packer.
-
-**Measure it, do not eyeball it.** `tools/check_readability.py` reports crossings,
-crossings per cable, and cable-length min/median/p95/max, plus which band each
-cable belongs to:
+#### 0. Measure before you touch anything
 
 ```console
-$ python3 tools/check_readability.py lab.pkt --max-crossings-per-cable 4.0
+$ python3 tools/check_readability.py lab.pkt
+crossings : 1645  (4.43 per cable)
+length    : min 111  median 888  p95 2916  max 3668  mean 1142
 ```
 
-A lab can pass `check_layout.py` — no overlap, nothing off-page, no coincident
-pair — and still measure 4.4 crossings per cable. Geometry and legibility are
-different properties, and only one of them has a stock gate.
+Record that. Every step below is a claim about a number, and without the baseline
+you cannot tell an improvement from a change.
+
+#### 1. Decide the *sections* — the places a reader looks for
+
+Not page tiers: **places**. On an air base that is "the fuel farm", "the
+hospital", "air traffic control", "the tenant squadrons". Aim for **10–20
+sections of roughly 10–70 devices**. On the model this was measured on, 16
+sections covering 392 devices.
+
+A section is the unit of organisation, and it is coarse on purpose — see step 6.
+
+#### 2. Place each section as its own block, and let the generator own the placement
+
+Pack the section blocks masonry-style into columns: sort nothing, keep a stable
+declaration order, and give each block to the **shortest column that can hold
+it**. Then call the single writer with `--no-repack`:
+
+```console
+$ tools/finalise_lab.py lab.pkt --templates tools/device_templates.json --no-repack
+```
+
+`--no-repack` is not optional once you own the placement, because the repack
+groups devices into bands **by name** and its built-in rules are one lab's naming
+convention (Rule 9). `finalise_lab` still sanitises, re-gates and round-trip
+checks the bytes it writes — only the coordinates are left alone.
+
+#### 3. Order the *sections* by their cable graph
+
+A fan is shortest when its source sits at the centroid of its destinations. The
+most-connected section — the collapsed core, on every model built here — belongs
+in the **middle** of the packing order, not at the top. Measured with the core at
+the top: **70% of all cable crossings involved a core-band cable.**
+
+#### 4. Order the devices *within* a section — but only if a name-keyed repack owns the layout
+
+If you are placing explicitly (step 2), this step does nothing, and that is worth
+knowing rather than assuming: on this model, disabling the document-ordering pass
+entirely left crossings and every cable-length percentile **identical**.
+
+It matters when the layout is produced by `repack_layout` / `finalise_lab`, which
+fill each band **row-major in document order** — there, document order *is* the
+layout:
+
+* emit each section as a breadth-first walk of its own cable graph;
+* size the chunks to **one packing row**, because a cluster that straddles a row
+  boundary gets its switch at one end of the page and its access devices at the
+  other (measured: 3,538 units from a tenant switch to its own workstation);
+* **centre the hub in its row** — at one end it is ~3,400 units from the child at
+  the other, in the middle at most half that.
+
+Measured effect of those three when a name-keyed repack owned the layout:
+crossings 1,645 → 1,321, p95 cable 2,916 → 2,408, median 1,067 → 849.
+
+#### 5. Draw the section boundary — with a `RECTANGLE`, never a `CLUSTER`
+
+```xml
+<RECTANGLE uuid="{...}">
+  <TopLeftX>353</TopLeftX><TopLeftY>1001</TopLeftY>
+  <BottomRightX>764</BottomRightX><BottomRightY>1375</BottomRightY>
+  <Color><Red>21</Red><Green>101</Green><Blue>192</Blue></Color>
+  <Filled OUTLINED="true" OUTLINECOLOR="#1565c0">0</Filled>   <!-- 0 = hollow -->
+  <RECTCLUSTERID>1-1</RECTCLUSTERID>
+  <MEM_ADDR>...</MEM_ADDR>
+</RECTANGLE>
+```
+
+at `PACKETTRACER5/RECTANGLES/RECTANGLE`. `LINES`, `ELLIPSES` and `POLYGONS` are
+siblings with the same geometry idiom.
+
+**A cluster is a container, not a group box.** It looks like the right feature and
+its XML is easy to find in Cisco's own labs — `<CLUSTER>` under
+`CLUSTERS/ROOTCLUSTER`, with membership on the device as
+`WORKSPACE/LOGICAL/DEVCLUSTERID` — but Packet Tracer renders it as a **single
+collapsible icon carrying the name**, with the member devices hidden inside.
+Measured on a three-device probe: three PCs, one of them in a cluster named
+"Section A", render as **two PCs and one icon captioned "Section A"**. At 392
+devices in 16 clusters the entire model appears to vanish — sixteen icons on an
+empty page. That is what "the render never finished" looked like here for a long
+time: the file was fine and the devices were collapsed.
+
+**You cannot put a section name on the logical canvas.** There is no
+logical-canvas text element: `NOTE` exists, but every instance across 293 shipped
+labs sits under `PHYSICALWORKSPACE/.../NOTES/NOTE`, annotating the *physical*
+view. So the canvas gets boundaries and the *names* live in the diagram and the
+documents. Plan for that rather than discovering it after wiring up a naming
+scheme.
+
+#### 6. Re-measure, and accept the ceiling
+
+```console
+$ python3 tools/check_readability.py lab.pkt
+crossings : 1079  (2.90 per cable)
+length    : min 149  median 410  p95 1444  max 3391  mean 515
+```
+
+**The page is saturated at ~390 devices, and that is the binding constraint.**
+392 label-inclusive boxes at a 200-unit pitch need about 11.8 M units² of a
+14.4 M unit² page. Section blocks fit; **per-cluster blocks do not** — measured,
+they overflow to y≈4,265. Sections are coarse enough to be page units, clusters
+are too fine. If a model must be genuinely tidy, that is an argument for fewer
+devices per page, not for a cleverer packer.
+
+#### What each step was worth
+
+| Step | crossings/cable | median cable |
+| --- | ---: | ---: |
+| baseline | 4.43 | 888 u |
+| 3 — section order by cable graph | 3.97 | 1,067 u |
+| 4 — row-sized chunks, hub centred | 3.55 | 849 u |
+| 1–2, 5 — section blocks and boundaries | **2.90** | **410 u** |
+
+Sections are the big win because a section is a compact block: most cables never
+leave it. The boundaries also make the picture *navigable*, which no metric
+captures.
+
+#### Two traps that cost the most time here
+
+* **The tier rules are one lab's naming convention.** Covered by Rule 9 — 361 of
+  392 devices matched no built-in rule and collapsed into a single band.
+* **Determinism.** Covered by Rule 13 — `uuid4()`, `hash()` on a string, and
+  seeding a walk from a `set` each make two runs of the same profile differ.
 
 ### Rule 12 — derive a port's VLAN from its peer, not from a table beside it
 
@@ -903,105 +1004,23 @@ and anything the explicit map did not mention is completed from the cabling and
 recorded in the build report. The explicit map then only has to name the
 uplinks — and a table that short is a table that stays correct.
 
-### Rule 13 — a band of loose icons is still a chain: give the model *sections*
+### Rule 13 — three things that make a build non-reproducible, all invisible
 
-A band of 60 icons on one row tells a reader that there are 60 devices and
-nothing else. They cannot find the fuel farm. Rows are a packing strategy, not an
-organisation.
+A published SHA-256 that cannot be re-derived is worse than no hash. All three of
+these produce a *successful* build whose bytes differ between runs:
 
-The fix is to place each **section** — a place a reader looks for — as its own
-compact block with space around it, and draw a boundary round it. Two warnings
-first, because the obvious approach is wrong in a way that is easy to miss.
+| Source | Why | Fix |
+| --- | --- | --- |
+| `uuid.uuid4()` for generated ids (cluster ids, synthetic refs) | random per run | `uuid.uuid5(NAMESPACE_URL, stable_string)` |
+| `hash(some_string)` for a synthetic numeric field | Python randomises string hashing **per process** (`PYTHONHASHSEED`) | derive from the stable id, e.g. `uuid5(...).int % 10**12` |
+| seeding a walk from a `set` | set iteration order varies between processes, so the *device order* changes — and with it the whole layout | keep an ordered list, or break ties on the creation index |
 
-#### A cluster is a container, not a group box — it hides what it contains
+The third is the expensive one: on a 392-device model it changed **84,658 lines**
+of XML between two runs. Verify by building twice and comparing digests, not by
+reading the code — and note that a diff of two builds is the fastest way to find
+which of the three you have.
 
-Packet Tracer's cluster looks like the right feature, and its XML is easy to
-find in Cisco's own labs:
-
-```xml
-<CLUSTER>
-  <NAME translate="true">Internet</NAME>
-  <X>1223</X><Y>292</Y>
-  <CLOUDID>1-1</CLOUDID>
-  <CLUSTERID>2-{356f3541-68b0-4eea-a043-3eab794b0192}#2</CLUSTERID>
-  <MEM_ADDR>2569540347280</MEM_ADDR>
-  <CLUSTER_BG_IMAGE isanim="false" />
-  <CLUSTER_EMBEDDED_BG_IMAGE />
-  <CLUSTER_ICON_IMAGE>../art/Workspace/Logical/iCluster.png</CLUSTER_ICON_IMAGE>
-  <TILED_BG>false</TILED_BG>
-</CLUSTER>
-```
-
-at `PACKETTRACER5/CLUSTERS/ROOTCLUSTER/CLUSTER`, with membership on the device:
-
-```xml
-<WORKSPACE><LOGICAL>
-  <X>948.5</X><Y>225</Y>
-  <DEVCLUSTERID>2-{356f3541-...}#2</DEVCLUSTERID>
-```
-
-**But a cluster is a collapsible container.** Packet Tracer renders it as a
-single icon carrying the cluster's name, and its member devices are *inside* it —
-invisible until someone expands it by hand. Measured on a three-device probe:
-
-```
-3 PCs, one of them in a cluster named "Section A"
-  -> renders as: PC-PT A1 --- PC-PT A2 ... and ONE icon captioned "Section A"
-```
-
-Scale that to a 392-device lab in 16 clusters and the entire model appears to
-vanish: sixteen icons on an empty page. That is what "the render never finished"
-looked like for two days of captures — the file was fine and the devices were
-simply collapsed. **Do not use a cluster to draw a labelled box around devices
-you want to see.**
-
-#### Draw a rectangle instead
-
-A `RECTANGLE` is a plain drawing-layer element: no grouping, no collapsing,
-devices stay visible. Same provenance, `PACKETTRACER5/RECTANGLES/RECTANGLE`:
-
-```xml
-<RECTANGLE uuid="{...}">
-  <TopLeftX>353</TopLeftX><TopLeftY>1001</TopLeftY>
-  <BottomRightX>764</BottomRightX><BottomRightY>1375</BottomRightY>
-  <Color><Red>21</Red><Green>101</Green><Blue>192</Blue></Color>
-  <Filled OUTLINED="true" OUTLINECOLOR="#1565c0">0</Filled>   <!-- 0 = hollow -->
-  <RECTCLUSTERID>1-1</RECTCLUSTERID>
-  <MEM_ADDR>...</MEM_ADDR>
-</RECTANGLE>
-```
-
-(`LINES`, `ELLIPSES` and `POLYGONS` are siblings with the same geometry idiom.)
-
-#### You cannot put a name on the logical canvas
-
-There is **no logical-canvas text element**. `NOTE` exists, but every instance
-across 293 shipped labs sits under
-`PHYSICALWORKSPACE/.../NOTES/NOTE`, i.e. it annotates the *physical* view; there
-is no root-level `NOTES` and no "note" device type. So a section boundary can be
-drawn on the canvas, but its *name* has to live in the diagram and the documents.
-Plan for that rather than discovering it after wiring up a naming scheme.
-
-**Choose section granularity to fit.** Measured on a 392-device model, per-cluster
-blocks (a switch plus its own access devices) do **not** fit: 392 boxes at a
-200-unit pitch need 11.8 M units² of a 14.4 M unit² page, and the blocks overflow
-to y≈4,265. Sixteen sections fit comfortably. Sections are coarse enough to be
-places; clusters are too fine to be page units.
-
-Effect on that model, same network throughout:
-
-| | before | after |
-| --- | ---: | ---: |
-| cable crossings | 1,645 | **1,079** (−34%) |
-| crossings per cable | 4.43 | **2.90** |
-| median cable | 888 u | **410 u** (−54%) |
-| mean cable | 1,142 u | **515 u** (−55%) |
-
-Cables get short because a section is a compact block, so most cables are
-intra-section. The boundaries also make the picture *navigable*, which no metric
-captures.
-
-#### A corpus you already have — 299 Cisco-authored labs in the AppImage
+## A corpus you already have — 293 Cisco-authored labs in the AppImage
 
 `corpus/fetch_corpus.py` is not the only way to get real Packet Tracer files.
 Packet Tracer ships its own example labs:
@@ -1027,22 +1046,6 @@ for f in glob.glob("/tmp/squashfs-root/opt/pt/saves/**/*.pkt", recursive=True):
         print("has clusters:", f)
 EOF
 ```
-
-### Rule 14 — three things that make a build non-reproducible, all invisible
-
-A published SHA-256 that cannot be re-derived is worse than no hash. All three of
-these produce a *successful* build whose bytes differ between runs:
-
-| Source | Why | Fix |
-| --- | --- | --- |
-| `uuid.uuid4()` for generated ids (cluster ids, synthetic refs) | random per run | `uuid.uuid5(NAMESPACE_URL, stable_string)` |
-| `hash(some_string)` for a synthetic numeric field | Python randomises string hashing **per process** (`PYTHONHASHSEED`) | derive from the stable id, e.g. `uuid5(...).int % 10**12` |
-| seeding a walk from a `set` | set iteration order varies between processes, so the *device order* changes — and with it the whole layout | keep an ordered list, or break ties on the creation index |
-
-The third is the expensive one: on a 392-device model it changed **84,658 lines**
-of XML between two runs. Verify by building twice and comparing digests, not by
-reading the code — and note that a diff of two builds is the fastest way to find
-which of the three you have.
 
 ## Before you ship — run the gates, in this order
 
@@ -1275,7 +1278,7 @@ runs the grading engine.
 Shipped libraries: `tools/device_templates.json` (137 models, 78 modules),
 `tools/device_shapes.json`, `tools/network_seed.xml`, `tools/activity_skeleton.xml`.
 
-## A worked example of all fourteen rules
+## A worked example of all thirteen rules
 
 `generators/jasdf_aewc/` is the 290-device lab that rules 1–6 came from. A second,
 386-device lab — an automated container terminal with 12 ship-to-shore cranes, 16
