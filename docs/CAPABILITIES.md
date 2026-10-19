@@ -36,6 +36,11 @@ lab.link(sw, "FastEthernet0/1", pc, "FastEthernet0")
 lab.save("lab.pkt")
 ```
 
+Routers default to `R<number>` and switches to `SW<number>`. The authoring API
+chooses the first unused number, including names inherited from the seed. Pass
+an explicit name to override the convention; other device types still require
+one.
+
 ## 1. Devices
 
 `<ENGINE><TYPE customModel="" model="MODEL">Label</TYPE>` picks the model; harvested

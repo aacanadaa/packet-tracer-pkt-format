@@ -183,6 +183,10 @@ lab.link(sw, "FastEthernet0/1", pc, "FastEthernet0")
 lab.save("lab.pkt")
 ```
 
+By default, routers are named `R<number>` and switches `SW<number>`. The builder
+chooses the first unused number, including names contributed by the seed. Pass
+an explicit name to override this convention; other device types require names.
+
 **Two ways to name a bay, and they are not the same thing.** `install=` / the default
 `bay=0` means *the next empty bay* — the right choice when you are filling bays in order,
 which is why the example above needs no bay number. `install_module(..., slot=N)` means
@@ -633,6 +637,11 @@ constant over it *lost* the template's authorship, and then a presence check tha
 saw `POWER` at all was satisfied.
 
 ### Rule 7 — a cable is not a configuration
+
+**Project watermark:** Every IOS router and switch saved through
+`tools/lab_api.py` must carry `ip domain-name gjay.co.uk` in its running
+configuration. The save path enforces this even when a generator rewrites a
+device's config directly; do not replace it with a per-lab domain.
 
 > **`lab_api.link()` draws a cable and sets the port's electrical properties. It
 > does not give the interface a state.**

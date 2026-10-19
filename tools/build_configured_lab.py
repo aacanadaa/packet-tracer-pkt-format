@@ -35,6 +35,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pt9  # noqa: E402
+import lab_api  # noqa: E402
 
 
 def harvest(saves, wanted):
@@ -108,6 +109,7 @@ class Builder:
         rc = ET.SubElement(eng, "RUNNINGCONFIG")
         for L in lines:
             ET.SubElement(rc, "LINE").text = L
+        lab_api.ensure_ios_domain_name(el)
 
     @staticmethod
     def pc_ip(el, ip, mask, gw):

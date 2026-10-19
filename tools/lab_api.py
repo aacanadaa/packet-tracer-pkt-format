@@ -238,6 +238,43 @@ def kind_for_model(model: str) -> str:
     return "default"
 
 
+IOS_DOMAIN_NAME = "gjay.co.uk"
+_IOS_DEVICE_KINDS = {"router", "switch", "multilayer-switch"}
+_DEVICE_NAME_PREFIXES = {
+    "router": "R",
+    "switch": "SW",
+    "multilayer-switch": "SW",
+}
+
+
+def ensure_ios_domain_name(device):
+    """Stamp IOS routers and switches with the project's fixed domain name."""
+    engine = device.find("ENGINE")
+    if engine is None:
+        return
+    device_type = engine.find("TYPE")
+    model = device_type.get("model", "") if device_type is not None else ""
+    if kind_for_model(model) not in _IOS_DEVICE_KINDS:
+        return
+
+    config = engine.find("RUNNINGCONFIG")
+    if config is None:
+        config = ET.SubElement(engine, "RUNNINGCONFIG")
+    lines = [line for line in config.findall("LINE")
+             if not re.match(r"ip domain-name(?:\s|$)", (line.text or "").strip(), re.I)]
+    hostname_index = next(
+        (i for i, line in enumerate(lines)
+         if (line.text or "").strip().lower().startswith("hostname ")),
+        -1,
+    )
+    domain_line = ET.Element("LINE")
+    domain_line.text = f"ip domain-name {IOS_DOMAIN_NAME}"
+    lines.insert(hostname_index + 1, domain_line)
+    for line in list(config):
+        config.remove(line)
+    config.extend(lines)
+
+
 def device_box(kind: str, name: str, model_caption: str) -> tuple[int, int]:
     """Return the label-inclusive cell (width, height) of one device.
 
@@ -726,11 +763,26 @@ class Lab:
             n += 1
         return "%s(%d)" % (name, n)
 
-    def add_device(self, model: str, name: str, x: int = 100, y: int = 100,
+    def _default_name(self, model: str) -> str:
+        """Return the first unused convention-based router or switch name."""
+        prefix = _DEVICE_NAME_PREFIXES.get(kind_for_model(model))
+        if prefix is None:
+            raise ValueError(
+                f"device name is required for model {model!r}; automatic names "
+                "are defined for routers and switches only"
+            )
+        taken = set(self.device_names())
+        number = 1
+        while f"{prefix}{number}" in taken:
+            number += 1
+        return f"{prefix}{number}"
+
+    def add_device(self, model: str, name: str | None = None, x: int = 100, y: int = 100,
                    power: bool = True, ios_config: Sequence[str] | None = None,
                    pc_ip: Sequence[str] | None = None, install: str | None = None,
                    bay: int = 0, on_name_conflict: str = "raise") -> str:
         # unique-name check first: a collision must not leave half-added state
+        name = self._default_name(model) if name is None else name
         name = self._resolve_name(name, on_name_conflict)
         i = self._n
         self._n += 1
@@ -783,6 +835,7 @@ class Lab:
             rc = ET.SubElement(eng, "RUNNINGCONFIG")
             for L in ios_config:
                 ET.SubElement(rc, "LINE").text = L
+        ensure_ios_domain_name(el)
         if pc_ip:
             port = el.find(".//PORT")
             for tag, val in (("IP", pc_ip[0]), ("SUBNET", pc_ip[1]),
@@ -1029,6 +1082,8 @@ class Lab:
     drop_seed_devices = prune_seed_devices
 
     def save(self, path):
+        for device in self.devs.findall("DEVICE"):
+            ensure_ios_domain_name(device)
         pt9.encode(path, ET.tostring(self.base, encoding="unicode").encode("utf-8"), "pkt")
 
 

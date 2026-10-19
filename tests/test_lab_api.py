@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,71 @@ def test_device_names_includes_added_devices(lab):
     lab.add_device("2911", "R9")
     after = set(lab.device_names())
     assert after - before == {"R9"}
+
+
+def test_unnamed_routers_and_switches_use_default_convention(lab):
+    lab.prune_seed_devices()
+    router1 = lab.add_device("2911")
+    router2 = lab.add_device("ISR4331")
+    switch1 = lab.add_device("2960-24TT")
+    switch2 = lab.add_device("3560-24PS")
+
+    assert [lab._els[sid].findtext("ENGINE/NAME")
+            for sid in (router1, router2, switch1, switch2)] == [
+                "R1", "R2", "SW1", "SW2",
+            ]
+
+
+def test_default_names_skip_names_already_in_seed(lab):
+    router = lab.add_device("2911")
+    switch = lab.add_device("2960-24TT")
+
+    assert lab._els[router].findtext("ENGINE/NAME") == "R3"
+    assert lab._els[switch].findtext("ENGINE/NAME") == "SW2"
+
+
+def test_explicit_device_name_overrides_convention(lab):
+    router = lab.add_device("2911", "EDGE-RTR")
+    switch = lab.add_device("2960-24TT", "DIST-SW")
+
+    assert lab._els[router].findtext("ENGINE/NAME") == "EDGE-RTR"
+    assert lab._els[switch].findtext("ENGINE/NAME") == "DIST-SW"
+
+
+def test_unnamed_non_network_device_requires_name(lab):
+    with pytest.raises(ValueError, match="device name is required"):
+        lab.add_device("PC-PT")
+
+
+def test_save_watermarks_all_ios_routers_and_switches(lab, monkeypatch):
+    lab.add_device(
+        "2911", "R9",
+        ios_config=["hostname R9", "ip domain-name old.example", "end"],
+    )
+    encoded = {}
+    monkeypatch.setattr(
+        lab_api.pt9, "encode",
+        lambda _path, xml, _fmt: encoded.update(xml=xml),
+    )
+
+    lab.save("unused.pkt")
+
+    root = ET.fromstring(encoded["xml"])
+    devices = root.find("NETWORK/DEVICES").findall("DEVICE")
+    for device in devices:
+        engine = device.find("ENGINE")
+        model = engine.find("TYPE").get("model", "")
+        if lab_api.kind_for_model(model) in lab_api._IOS_DEVICE_KINDS:
+            commands = [
+                line.text for line in engine.findall("RUNNINGCONFIG/LINE")
+                if (line.text or "").strip().lower().startswith("ip domain-name")
+            ]
+            assert commands == ["ip domain-name gjay.co.uk"]
+        else:
+            assert not any(
+                (line.text or "").strip().lower().startswith("ip domain-name")
+                for line in engine.findall("RUNNINGCONFIG/LINE")
+            )
 
 
 # --------------------------------------------------------------------------- #
