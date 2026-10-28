@@ -7,6 +7,7 @@
 > modules, cabling, IOS config, PC IPs, instructions, the activity-wizard password,
 > and the scoring tree — straight to a file PT opens.
 
+[![PyPI](https://img.shields.io/pypi/v/packet-tracer-pkt-format.svg)](https://pypi.org/project/packet-tracer-pkt-format/)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20me-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/suoim)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -15,9 +16,44 @@
 
 **Languages:** English | [简体中文](README.zh-CN.md)
 
+## Install
+
+```console
+$ pip install packet-tracer-pkt-format
+```
+
+Python 3.10 or newer. The only runtime dependency is `pydantic`. Reading,
+inspecting, diffing, exporting and re-writing files needs nothing else — no Packet
+Tracer, no compiler, no system crypto library. `libgcrypt`, if present, and the
+optional Rust extension are picked up automatically as accelerators; the pure-Python
+ciphers are always available as the reference path.
+
+## Quickstart
+
+Point it at any `.pkt` or `.pka` you already have:
+
+```console
+$ pkt info my_lab.pkt                          # container metadata, size, root tag
+$ pkt export my_lab.pkt --format graphviz -o topology.dot
+$ pkt unpack my_lab.pkt -o out/                # XML + per-device IOS configs + topology
+$ pkt pack out/my_lab.xml -o rebuilt.pkt       # byte-exact reconstruction
+```
+
+```python
+from pkt_core import decode
+from pkt_core.models import Lab
+
+lab = Lab.from_bytes(decode("my_lab.pkt").xml)
+print(len(lab.devices), "devices,", len(lab.links), "links")
+for dev in lab.devices:
+    print(dev.name, dev.kind, dev.model)
+```
+
 ## Create a Packet Tracer, without Packet Tracer
 
-Packet Tracer is only needed to *open* the result — the lab itself is authored here:
+Packet Tracer is only needed to *open* the result — the lab itself is authored here.
+The generators below live in [`tools/`](tools) and run from a checkout, not from the
+installed package:
 
 ```python
 import lab_api
@@ -126,10 +162,11 @@ third-party files used for the reverse engineering are **not** committed — see
 
 ## Usage
 
-`pt9.py` is the original single-file reader/writer; `pkt` is the full CLI.
+`pt9.py` is the original single-file reader/writer and needs no install; `pkt` is
+the full CLI. Neither requires `libgcrypt` — install it (`apt install libgcrypt20`)
+only if you want the accelerated cipher path.
 
 ```console
-$ sudo apt install libgcrypt20            # only dependency (block cipher primitive)
 $ python3 pt9.py info   my_lab.pkt
 root tag  : PACKETTRACER5
 xml bytes : 1045755
@@ -145,9 +182,9 @@ The `pkt` entry point adds inspection, diffing, export and auditing:
 ```console
 $ pkt info    my_lab.pkt                 # container metadata, size, root tag
 $ pkt unpack  my_lab.pkt -o out/         # XML + per-device IOS configs + topology
-$ pkt pack    out/ -o rebuilt.pkt        # byte-exact reconstruction
+$ pkt pack    out/my_lab.xml -o rebuilt.pkt   # byte-exact reconstruction
 $ pkt diff    before.pkt after.pkt       # structural diff
-$ pkt export  my_lab.pkt -f graphviz     # graphviz / netbox / containerlab
+$ pkt export  my_lab.pkt --format graphviz    # graphviz / netbox / containerlab
 $ pkt audit   my_lab.pkt --templates tools/device_templates.json
 ```
 

@@ -1,38 +1,76 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pkt-core"
-version = "0.2.0"
-description = "Type-safe reader/writer for Cisco Packet Tracer .pkt/.pka containers, plus a reverse-engineering reference codec"
+name = "packet-tracer-pkt-format"
+version = "0.3.0"
+description = "Read, write and generate Cisco Packet Tracer .pkt/.pka files offline: byte-exact codec, typed models, and a reverse-engineering reference"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [{ name = "aacanadaa" }]
-keywords = ["packet-tracer", "pkt", "pka", "cisco", "file-format", "twofish", "eax", "reverse-engineering"]
+keywords = [
+  "packet-tracer",
+  "cisco",
+  "pkt",
+  "pka",
+  "file-format",
+  "twofish",
+  "eax",
+  "reverse-engineering",
+  "networking",
+  "ccna",
+  "lab-generator",
+]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Intended Audience :: Education",
+  "Intended Audience :: System Administrators",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Topic :: Education",
   "Topic :: System :: Networking",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pydantic>=2.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "mypy>=1.8", "hypothesis>=6.90"]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "mypy>=1.8",
+  "hypothesis>=6.90",
+  "build>=1.0.0",
+  "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aacanadaa/packet-tracer-pkt-format"
+Repository = "https://github.com/aacanadaa/packet-tracer-pkt-format"
+Issues = "https://github.com/aacanadaa/packet-tracer-pkt-format/issues"
+Documentation = "https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/FORMAT.md"
+Changelog = "https://github.com/aacanadaa/packet-tracer-pkt-format/releases"
+Format-Specification = "https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/docs/FORMAT_SPECIFICATION.md"
+Verification-Report = "https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/docs/CORPUS_VERIFICATION.md"
 
 [project.scripts]
 pkt = "pkt_core.cli.main:main"
-pt9 = "pt9:main"
-
-[tool.setuptools]
-py-modules = ["pt9"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"pkt_core" = ["py.typed"]
 
 [tool.mypy]
 strict = true
