@@ -58,7 +58,7 @@ def load_devices(path: Path) -> list[lab_api.Device]:
         xml = raw
     else:
         fmt = "pka" if path.suffix.lower() == ".pka" else "pkt"
-        xml = lab_api.pt9.decode_bytes(raw, fmt)
+        xml = lab_api.decode_bytes(raw, fmt).xml
     return lab_api.parse_devices(xml)
 
 

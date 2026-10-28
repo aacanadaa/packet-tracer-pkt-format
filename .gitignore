@@ -21,6 +21,9 @@ native/pkt_core_native/target/
 *.pka
 *.xml
 !tools/*.xml
+# The seed document ships inside the package: without it a `pip install` cannot
+# build a lab, and CI fails at import time rather than at build time.
+!src/pkt_core/data/*.xml
 
 # The only container files shipped are self-authored, GPL samples.
 !corpus/samples/*.pkt

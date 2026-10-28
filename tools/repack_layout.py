@@ -97,11 +97,11 @@ def _read(path: Path) -> tuple[str, str, bool]:
     if raw[:1] == b"<" or raw.lstrip()[:1] == b"<":
         return raw.decode("utf-8"), "pkt", False
     fmt = "pka" if path.suffix.lower() == ".pka" else "pkt"
-    return lab_api.pt9.decode_bytes(raw, fmt).decode("utf-8"), fmt, True
+    return lab_api.decode_bytes(raw, fmt).xml.decode("utf-8"), fmt, True
 
 
 def _write(path: Path, xml: str, fmt: str, container: bool) -> None:
-    data = (lab_api.pt9.encode_bytes(xml.encode("utf-8"), fmt) if container
+    data = (lab_api.encode_bytes(xml.encode("utf-8"), fmt) if container
             else xml.encode("utf-8"))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)

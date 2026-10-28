@@ -41,7 +41,9 @@ from pkt_core.errors import (
     UnsupportedCipherError,
 )
 
-__version__ = "0.3.0"
+from pkt_core.builder import Lab, Layout, load_templates
+
+__version__ = "0.4.0"
 
 __all__ = [
     # container
@@ -74,4 +76,8 @@ __all__ = [
     "CompressionError",
     "UnsupportedCipherError",
     "__version__",
+    # authoring (imported last: the builder imports the codec above)
+    "Lab",
+    "Layout",
+    "load_templates",
 ]

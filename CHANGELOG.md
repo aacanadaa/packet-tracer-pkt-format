@@ -9,6 +9,42 @@ repository are revisions of the agent skill document, not of the library. Librar
 releases are tagged `sdk-v*` and published to PyPI as
 [`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/).
 
+## [0.4.0] — 2026-10-28
+
+A `pip install` can now **build** a lab, not only read one.
+
+### Added
+
+- **`pkt_core.builder`** — the `Lab` authoring API, ported into the package from
+  `tools/lab_api.py`: place a device, set power, install a module, cable copper or
+  serial, write an IOS running-config, assign PC addressing, and save.
+- **`pkt_core.resources`** — the bundled template library (137 device models, 78
+  modules) and the seed document, loaded through `importlib.resources` and cached.
+  This is what removes the checkout requirement.
+- `from pkt_core import Lab, Layout, load_templates`; `Lab()` and `load_templates()`
+  with no arguments use the bundled data.
+- `tests/test_resources.py`, covering the loaders and a full build-and-decode round
+  trip from the packaged data alone.
+
+### Changed
+
+- `tools/lab_api.py` is now a compatibility shim re-exporting `pkt_core.builder`, so
+  the `tools/` scripts and anything doing `import lab_api` from a checkout keep
+  working.
+- The few call sites that reached through `lab_api.pt9` now use
+  `lab_api.decode_bytes` / `encode_bytes`.
+
+### Notes
+
+- The port is behaviour-preserving: the `Lab` code is unchanged apart from the codec
+  calls, which now go to the package instead of the root `pt9` module.
+- `pkt_core.builder` is **not yet annotated internally** and is therefore excluded
+  from `mypy --strict` in `pyproject.toml`, with the reason recorded there. Its
+  public signatures are typed, and every other module remains fully checked. The
+  remaining work is tracked in `BUILDER_PORT.md`.
+- The wheel grows by the two bundled assets (~1.9 MB raw). Scored-activity authoring
+  from the package (`tools/activity.py`, `tools/scoring.py`) is not ported yet.
+
 ## [0.3.0] — 2026-10-28
 
 First release under the `packet-tracer-pkt-format` name on PyPI.

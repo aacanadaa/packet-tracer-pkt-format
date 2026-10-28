@@ -8,6 +8,7 @@
 > and the scoring tree — straight to a file PT opens.
 
 [![PyPI](https://img.shields.io/pypi/v/packet-tracer-pkt-format.svg)](https://pypi.org/project/packet-tracer-pkt-format/)
+[![Docs](https://img.shields.io/badge/docs-aacanadaa.github.io-4c1.svg)](https://aacanadaa.github.io/packet-tracer-pkt-format/)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20me-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/suoim)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -52,13 +53,14 @@ for dev in lab.devices:
 ## Create a Packet Tracer, without Packet Tracer
 
 Packet Tracer is only needed to *open* the result — the lab itself is authored here.
-The generators below live in [`tools/`](tools) and run from a checkout, not from the
-installed package:
+The `Lab` builder ships with the package, templates included, so this works after a
+plain `pip install` with no checkout:
 
 ```python
-import lab_api
-models, modules = lab_api.load_templates("tools/device_templates.json")
-lab = lab_api.Lab("tools/network_seed.xml", models, modules)
+from pkt_core import Lab
+
+lab = Lab()                       # bundled seed document and 137-device template library
+lab.prune_seed_devices()          # start from a clean canvas
 r  = lab.add_device("2911", "R1", 250, 350, install="HWIC-2T",
                     ios_config=["interface GigabitEthernet0/0",
                                 " ip address 192.168.1.1 255.255.255.0", " no shutdown", "end"])
@@ -70,7 +72,8 @@ lab.link(sw, "FastEthernet0/1", pc, "FastEthernet0")
 lab.save("my_lab.pkt")            # open in Packet Tracer — no Packet Tracer used to build it
 ```
 
-...or one-shot from a topology spec (devices + links → a scored, password-protected activity):
+...or one-shot from a topology spec (devices + links → a scored, password-protected
+activity). These generators live in [`tools/`](tools) and run from a checkout:
 
 ```console
 $ python3 tools/make_scored_lab.py --out mylab.pka --spec topology.json --password hunter2
@@ -102,8 +105,10 @@ Full details, evidence and the per-format key table are in **[FORMAT.md](FORMAT.
 ## The `pkt_core` library
 
 `pt9.py` is a self-contained reference codec. Alongside it, `src/pkt_core/` is the
-**type-safe library** (`mypy --strict`, Python 3.10+) intended for embedding — the
-CLI is a thin consumer of it and is never imported back into the package.
+**type-safe library** (Python 3.10+) intended for embedding — the CLI is a thin
+consumer of it and is never imported back into the package. Everything is checked
+under `mypy --strict` except `pkt_core.builder`, which is a port of the authoring
+code and is not yet annotated internally; its public signatures are typed.
 
 ```python
 from pkt_core import decode, encode_bytes
@@ -138,6 +143,8 @@ for link in lab.links:
 | `pkt_core.codec.container` | Detect / decode / encode the whole container |
 | `pkt_core.xml` | Lossless byte-level XML layer (lazy, HTML-tolerant) |
 | `pkt_core.models` | Typed views: `Lab`, `Device`, `Port`, `Link`, `Cluster`, `RunningConfig` |
+| `pkt_core.builder` | Authoring: `Lab` (place, power, module, cable, configure), `Layout` |
+| `pkt_core.resources` | The bundled template library and seed document |
 | `pkt_core.diff` | Semantic device/link/config comparison |
 | `pkt_core.export` | `graphviz`, `netbox`, `containerlab` topology export |
 | `pkt_core.errors` | Typed exceptions — never a bare `Exception` |
