@@ -1,7 +1,7 @@
 # Scene graph, device layout and cable binding
 
 Notes from generating large Packet Tracer files programmatically.  Read together
-with [../FORMAT.md](../FORMAT.md), which covers the container/crypto.  Here we
+with [FORMAT.md](https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/FORMAT.md), which covers the container/crypto.  Here we
 cover what is *inside* the XML and what Packet Tracer validates on load.
 
 ## 1. Document shape

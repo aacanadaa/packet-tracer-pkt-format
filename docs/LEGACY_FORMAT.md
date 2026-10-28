@@ -6,9 +6,9 @@ one: it is exactly the modern pipeline with the outer scramble and the AEAD seal
 *removed*.
 
 Companion artefacts:
-[`tools/legacy_probe.py`](../tools/legacy_probe.py) ·
-modern format: [`packet-tracer-pkt-format/FORMAT.md`](../packet-tracer-pkt-format/FORMAT.md) ·
-modern codec: [`packet-tracer-pkt-format/pt9.py`](../packet-tracer-pkt-format/pt9.py)
+[`tools/legacy_probe.py`](https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/tools/legacy_probe.py) ·
+modern format: [`FORMAT.md`](https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/FORMAT.md) ·
+modern codec: [`pt9.py`](https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/pt9.py)
 
 Covered here: the 193 real sample files in
 [`corpus/internet/`](../corpus/internet/) whose `decode_status` in

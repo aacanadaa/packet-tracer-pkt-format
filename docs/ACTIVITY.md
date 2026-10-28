@@ -1,7 +1,7 @@
 # Activity files (`.pka`) and the Activity Wizard
 
 Reverse-engineered from PT 9.0.1.  A `.pka` activity is the **same encrypted
-container** as a `.pkt` (see [FORMAT.md](../FORMAT.md)) whose plaintext XML root
+container** as a `.pkt` (see [FORMAT.md](https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/FORMAT.md)) whose plaintext XML root
 is `<PACKETTRACER5_ACTIVITY>` instead of `<PACKETTRACER5>`.  Opening a `.pka`
 puts Packet Tracer into *activity* mode: instructions window, **Check Results**
 (assessment), timers, permissions.

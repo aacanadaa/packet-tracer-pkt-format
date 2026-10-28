@@ -1,0 +1,102 @@
+# Documentation site for the Packet Tracer .pkt/.pka format and toolkit.
+#
+# Build locally:  pip install mkdocs-material && mkdocs serve
+# Deploy:         .github/workflows/docs.yml (GitHub Pages)
+
+site_name: Packet Tracer .pkt/.pka Format & Toolkit
+site_description: >-
+  Reverse-engineered documentation for the Cisco Packet Tracer .pkt and .pka
+  container format, with a byte-exact Python codec and an offline lab generator.
+site_url: https://aacanadaa.github.io/packet-tracer-pkt-format/
+repo_url: https://github.com/aacanadaa/packet-tracer-pkt-format
+repo_name: aacanadaa/packet-tracer-pkt-format
+edit_uri: edit/main/docs/
+docs_dir: docs
+copyright: GPL-3.0-or-later · aacanadaa
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+
+plugins:
+  - search
+
+hooks:
+  - hooks/rewrite_repo_links.py
+
+# The documents link to source files and data with repo-relative paths. The hook
+# above turns the resolvable ones into GitHub URLs; the rest are reported at info
+# level because several point at artefacts that are not in the repository.
+validation:
+  links:
+    not_found: info
+    absolute_links: ignore
+    unrecognized_links: ignore
+  nav:
+    omitted_files: info
+    not_found: warn
+
+nav:
+  - Home: index.md
+  - Format:
+      - Format specification: FORMAT_SPECIFICATION.md
+      - Legacy container: LEGACY_FORMAT.md
+      - Schema reference: SCHEMA_REFERENCE.md
+      - Scene graph: SCENE_GRAPH.md
+      - Configuration model: CONFIGURATION.md
+  - Authoring:
+      - Capabilities: CAPABILITIES.md
+      - Activity files: ACTIVITY.md
+      - Scored-activity generation: PKA_GENERATION.md
+  - Verification:
+      - Corpus verification: CORPUS_VERIFICATION.md
+      - Corpus report: CORPUS_REPORT.md
+      - Packet Tracer validation: PACKET_TRACER_VALIDATION.md
+      - Large topology test: LARGE_TOPOLOGY_TEST.md
+  - Investigation notes:
+      - Layout and placement: LAYOUT_INVESTIGATION.md
+      - Power state: POWER_INVESTIGATION.md
+      - Enterprise lab problems: ENTERPRISE_PROBLEMS.md
+      - Enterprise YAML variant: ENTERPRISE_PROBLEMS_YAMLT.md
+      - Analysis plan: ANALYSIS_PLAN.md

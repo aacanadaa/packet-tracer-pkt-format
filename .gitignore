@@ -45,3 +45,7 @@ corpus/files/
 !generators/jasdf_aewc/build/
 generators/jasdf_aewc/docs/img/
 *.orig
+
+# MkDocs build output (mkdocs.yml at the repo root)
+site/
+.cache/

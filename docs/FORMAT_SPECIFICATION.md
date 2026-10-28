@@ -293,5 +293,5 @@ Verified 193/193 decode and 193/193 byte-exact round-trip; see
 * Empirical: 1,059 real-world containers (865 modern + 193 legacy), 40 upstream
   sources, byte-exact round-trip in both families.
 
-See [`FORMAT.md`](../FORMAT.md) for the original writeup and
+See [`FORMAT.md`](https://github.com/aacanadaa/packet-tracer-pkt-format/blob/main/FORMAT.md) for the original writeup and
 [`ANALYSIS_PLAN.md`](ANALYSIS_PLAN.md) for the corpus analysis.
