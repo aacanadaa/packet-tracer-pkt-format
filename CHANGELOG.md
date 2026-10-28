@@ -49,6 +49,15 @@ First release under the `packet-tracer-pkt-format` name on PyPI.
 - Version string in `pkt_core.__version__` now matches the distribution (it said
   `0.1.0` while the metadata said `0.2.0`).
 
+### Credits
+
+- The undeclared `pydantic` dependency was reported by
+  [@AhmedIrfan7](https://github.com/AhmedIrfan7) in
+  [#2](https://github.com/aacanadaa/packet-tracer-pkt-format/pull/2). The fix here
+  was written independently from `main` and shipped before the PR was reviewed; the
+  report was correct and the diagnosis in it — that CI hid the problem by installing
+  `pydantic` alongside the package — is the reason it is documented this thoroughly.
+
 ### Notes
 
 - Still byte-exact: `encode(decode(f)) == f` on all 1,058 corpus files, PT 4.1

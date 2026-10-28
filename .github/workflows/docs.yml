@@ -28,6 +28,12 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-latest
+    outputs:
+      # Pages has to be switched on once, under Settings -> Pages, with the source
+      # set to "GitHub Actions". Until then the site is built and validated but not
+      # deployed, so the job is green rather than red. Once it is switched on, this
+      # starts deploying by itself: no workflow edit needed.
+      pages: ${{ steps.pages.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,14 +46,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install mkdocs-material
 
-      # Pages must be enabled with "Source: GitHub Actions" before deploy-pages
-      # can run. enablement: true asks for that automatically; if the workflow
-      # token is not allowed to change repository settings, enable it once by
-      # hand under Settings -> Pages and this step becomes a no-op.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
       # --strict turns a broken internal link into a build failure, so the site
       # cannot drift out of sync with the documents.
       - name: Build
@@ -55,13 +53,28 @@ jobs:
         env:
           NO_MKDOCS_2_WARNING: "1"
 
+      - name: Is Pages enabled?
+        id: pages
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pages")
+          if [ "$code" = "200" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Pages not enabled::Build passed. Enable Settings -> Pages -> Source: GitHub Actions to publish this site; this workflow will then deploy automatically."
+          fi
+
       - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outputs.enabled == 'true'
         with:
           path: site
 
   deploy:
     name: deploy
     needs: build
+    if: needs.build.outputs.pages == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
