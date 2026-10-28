@@ -42,9 +42,16 @@ checkout. Same treatment: move, replace the `pt9` calls, shim the old path.
 aggregate so it cannot dilute the 90% gate that applies to codec and models. It is
 exercised by `test_lab_api`, `test_layout` and `test_power`, just not densely.
 
-**4. Wheel size.** The two bundled assets are 1.9 MB raw. They compress well but the
-wheel is now roughly 1 MB. If that matters, ship them gzipped and inflate in
-`resources.py`; the seed XML is extremely repetitive and would shrink substantially.
+**4. Wheel size and a duplicated asset.** The two bundled assets are 1.9 MB raw and
+the wheel is now roughly 820 KB. Note that `network_seed.xml` and
+`device_templates.json` now exist **twice** — in `tools/` for the authoring scripts
+and in `src/pkt_core/data/` for the package. Consolidating on one copy (and having
+`tools/` read from the package) is the right follow-up; do it before the two drift.
+
+A related trap: `.gitignore` excludes `*.xml` with narrow exceptions, and the first
+CI run on this branch failed because the seed document was silently not committed.
+The glob is now exempted with a comment, and `tests/test_resources.py` fails loudly
+if either asset goes missing again.
 
 ## Things that will bite
 
