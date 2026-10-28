@@ -37,6 +37,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install mkdocs-material
 
+      # Pages must be enabled with "Source: GitHub Actions" before deploy-pages
+      # can run. enablement: true asks for that automatically; if the workflow
+      # token is not allowed to change repository settings, enable it once by
+      # hand under Settings -> Pages and this step becomes a no-op.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       # --strict turns a broken internal link into a build failure, so the site
       # cannot drift out of sync with the documents.
       - name: Build
