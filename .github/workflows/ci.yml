@@ -78,7 +78,9 @@ jobs:
       - name: Install pkt_core and the extension
         run: |
           python -m pip install --upgrade pip
-          pip install maturin pytest pytest-cov hypothesis pydantic mypy
+          # Build and test tooling only; runtime dependencies come from
+          # `pip install -e .`, the same rule as the test job above (see #2).
+          pip install maturin pytest pytest-cov hypothesis mypy
           python -m pip install -e .
           # the crate's pyproject declares build-backend = "maturin", so pip
           # builds and installs it into this interpreter directly
