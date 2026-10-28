@@ -10,6 +10,9 @@ on:
       - "hooks/**"
       - "README.md"
       - "FORMAT.md"
+      # so a change to this workflow runs it, rather than silently waiting for
+      # the next docs edit
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
