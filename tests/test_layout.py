@@ -299,7 +299,7 @@ def test_enterprise_artefact_after_repack(tmp_path, src, engine_power, ports):
     assert rep["positions_only"]
 
     # port-level POWER must also be untouched and all true
-    xml = lab_api.pt9.decode_bytes(out.read_bytes(), "pkt").decode("utf-8")
+    xml = lab_api.decode_bytes(out.read_bytes(), "pkt").xml.decode("utf-8")
     import re as _re
     port_powers = _re.findall(r"<PORT>.*?<POWER>([^<]*)</POWER>", xml, _re.S)
     assert len(port_powers) == ports
@@ -320,7 +320,7 @@ def test_enterprise_artefact_after_repack(tmp_path, src, engine_power, ports):
 def test_enterprise_artefact_nn_min_positive():
     """The NN aggregation must never invent a coincident pair."""
     for src in (JADGE, JADGE_STD):
-        xml = lab_api.pt9.decode_bytes(src.read_bytes(), "pkt").decode("utf-8")
+        xml = lab_api.decode_bytes(src.read_bytes(), "pkt").xml.decode("utf-8")
         rep = check_layout.analyse(lab_api.parse_devices(xml))
         if rep["coincident"] == 0:
             assert rep["nn"]["min"] > 0

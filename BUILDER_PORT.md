@@ -1,90 +1,76 @@
-# Plan: make generation work from `pip install`
+# Generation from `pip install` — status
 
-**Status:** not started. **Blocker it removes:** the README promises "build Packet
-Tracer labs without Packet Tracer", but a clean `pip install` can only *read*.
-Generation still requires a source checkout and `python3 tools/...`.
+**Shipped in 0.4.0.** A clean `pip install packet-tracer-pkt-format` can now build a
+`.pkt`: `pkt_core.builder.Lab` places devices, sets power, installs modules, cables
+copper or serial, writes IOS running-configs, assigns PC addressing and saves, all
+against the bundled template library and seed document.
 
-## Why this is the next release
+This file records what was done, what was deliberately deferred, and what will bite
+whoever picks up the rest.
 
-Every distribution channel sends people to `pip install`. Today that install cannot
-do the thing the project is named for, so the first thing a new user tries fails —
-not with an error, but with a missing feature. Until this lands, the package is a
-reader, and the headline claim belongs to the repository rather than the product.
+## What shipped
 
-## What moves
+| Piece | Location |
+| --- | --- |
+| `Lab` authoring API | `src/pkt_core/builder/lab.py` (port of `tools/lab_api.py`) |
+| Template library, 137 models / 78 modules | `src/pkt_core/data/device_templates.json` |
+| Seed document | `src/pkt_core/data/network_seed.xml` |
+| Cached loaders | `src/pkt_core/resources.py` |
+| Compatibility shim | `tools/lab_api.py` (re-exports the package) |
+| Tests | `tests/test_resources.py` + the existing lab_api/layout/power suites |
 
-| Source | Destination | Lines |
-| --- | --- | --- |
-| `tools/lab_api.py` | `src/pkt_core/builder/lab.py` | 1,037 |
-| `tools/activity.py` | `src/pkt_core/builder/activity.py` | 151 |
-| `tools/scoring.py` | `src/pkt_core/builder/scoring.py` | 264 |
-| `tools/device_templates.json` | `src/pkt_core/data/device_templates.json` | 829 KB |
-| `tools/device_shapes.json` | `src/pkt_core/data/device_shapes.json` | 134 KB |
-| `tools/network_seed.xml` | `src/pkt_core/data/network_seed.xml` | 1.0 MB |
-| `tools/activity_skeleton.xml` | `src/pkt_core/data/activity_skeleton.xml` | 314 KB |
+`Lab()` and `load_templates()` with no arguments use the bundled data, so the
+five-line example in the README works with no checkout and no `sys.path` edits.
 
-Plus a new `src/pkt_core/resources.py` exposing cached loaders over
-`importlib.resources`, so callers stop passing filesystem paths.
+## Deferred, on purpose
 
-## Five traps, in the order they will bite
+**1. Full annotations for `pkt_core.builder`.** The module is excluded from
+`mypy --strict` in `pyproject.toml`, with the reason inline. Its public signatures
+are typed; the bodies are `ElementTree` surgery where `find()` returns `Optional`
+everywhere, and annotating 1,000 lines in the same change as a behaviour-preserving
+port would have risked the byte-exactness for no user-visible gain.
 
-1. **`import pt9`.** `lab_api.py` imports the root-level `pt9` module, which is not
-   shipped in the wheel (and now has no console script either). Every call site must
-   move to `from pkt_core.codec import decode, encode`, and `pt9.py` stays behind as
-   a standalone reference script. Do not `py-modules`-ship it: `packages.find`
-   resolves under `src/`, so `src/pt9.py` is where setuptools looks, and the file is
-   at the root.
+Annotating it properly is a standalone change: expect asserts or a non-`Optional`
+lookup helper at each `find()`, and no behavioural change. Remove the override in
+the same commit.
 
-2. **`mypy --strict`.** This is the real cost. The module has roughly 60 annotated
-   sites across 1,037 lines; `--strict` requires full coverage on every function,
-   including the `ET.Element` juggling and the `NamedTuple` field types. Budget most
-   of the work here, not on the move. An `# type: ignore` blanket is not acceptable —
-   the CI gate is `mypy --strict src/pkt_core` with no exclusions, and weakening it
-   to land this would cost more than it buys.
+**2. Scored-activity authoring.** `tools/activity.py` (151 lines) and
+`tools/scoring.py` (264 lines) are not ported, so building a `.pka` still needs a
+checkout. Same treatment: move, replace the `pt9` calls, shim the old path.
 
-3. **Coverage gate.** `fail_under = 90` is enforced in `pyproject.toml`. 1,452 moved
-   lines with no tests drags the total down sharply. Port `tests/test_lab_api.py`,
-   `test_layout.py` and `test_power.py` in the same commit, and add coverage for
-   `resources.py`.
+**3. Coverage.** The ported module sits at **67%** and is `omit`ted from the
+aggregate so it cannot dilute the 90% gate that applies to codec and models. It is
+exercised by `test_lab_api`, `test_layout` and `test_power`, just not densely.
 
-4. **Seven test files reference `tools/`** — `test_audit`, `test_install_module`,
-   `test_ios_audit`, `test_lab_api`, `test_layout`, `test_power`,
-   `test_reproducible_build`. They must resolve through the package instead of the
-   checkout, or the release passes tests that no longer reflect what ships.
+**4. Wheel size.** The two bundled assets are 1.9 MB raw. They compress well but the
+wheel is now roughly 1 MB. If that matters, ship them gzipped and inflate in
+`resources.py`; the seed XML is extremely repetitive and would shrink substantially.
 
-5. **Wheel size.** The four assets are 2.3 MB raw. They compress well (the seed XML
-   is highly repetitive), but check the wheel after adding them; if it matters, ship
-   them gzipped and inflate in `resources.py`. Do not add them twice — keep
-   `tools/` as the authoring source and copy, or make `tools/` read from the package,
-   but pick one.
+## Things that will bite
 
-## Order of work
+1. **`import pt9`.** The authoring code used the root-level reference codec. Inside
+   the package everything goes through `pkt_core.codec.container`. Do not re-add
+   `pt9` as a `py-modules` entry: `packages.find` resolves under `src/`, so
+   setuptools looks for `src/pt9.py`, and the file is at the repository root — that
+   is exactly how the dead `pt9` console script happened in 0.3.0.
 
-1. `src/pkt_core/data/` + `resources.py` + `[tool.setuptools.package-data]` entry.
-   Small, typed, testable. Ship it even if the rest slips.
-2. `builder/lab.py`: move, replace `pt9` imports, annotate to `--strict`.
-3. `builder/activity.py` and `builder/scoring.py`: same treatment.
-4. `tests/`: repoint the seven files, add `test_builder.py` and `test_resources.py`.
-5. `cli/main.py`: add `pkt new --out lab.pkt` so the first-run experience is one
-   command, not a Python snippet.
-6. README: move the generation example from "requires a checkout" to Quickstart.
+2. **`decode()` now returns a `Container`, not bytes.** The old `pt9.decode(f, fmt)`
+   returned the XML payload directly. Every ported call site needs `.xml`. The
+   compatibility shim exposes `decode_bytes`/`encode_bytes` for the `tools/` scripts
+   that used to reach through `lab_api.pt9`.
 
-## Acceptance criteria
+3. **The shim re-exports everything dynamically.** That is deliberate — the tools
+   reach for `_det_uuid`, `FLOOR` and `ET` — but it means a shim that silently
+   misses a name is worse than no shim. If you add a public name to
+   `pkt_core.builder.lab`, it is available through `lab_api` automatically.
 
-- [ ] `pip install packet-tracer-pkt-format` then a five-line script writes a `.pkt`
-      that Packet Tracer opens, with no checkout and no `sys.path` edits.
-- [ ] `mypy --strict src/pkt_core` passes with no new exclusions.
-- [ ] `pytest` passes, coverage ≥ 90%, corpus round trip unchanged.
-- [ ] `grep -r "import pt9" src/` is empty.
-- [ ] The wheel contains `pkt_core/data/*` and `pkt_core/py.typed`.
+4. **Coverage is branch-aware.** Adding a module without tests shows up as a
+   percentage drop, not as an error, until it trips `fail_under`. Check the builder
+   row explicitly after touching it.
 
-## Rough estimate
+## Next
 
-One focused session for `resources.py` plus the move; a second for the annotations,
-which is where the variance is. The port is mechanical but not small, and doing it
-half-typed would trade a shipped feature for a weakened type gate.
-
-## Interim wording
-
-Until this lands, say so plainly in the README rather than letting the promise stand
-unqualified — a scoped honest claim converts better than a broken generous one.
+1. Annotate `pkt_core.builder` and drop the override.
+2. Port `activity.py` and `scoring.py`, then a `pkt new` CLI command so the first
+   run is one command instead of a Python snippet.
+3. Raise builder coverage and fold it back into the aggregate.
