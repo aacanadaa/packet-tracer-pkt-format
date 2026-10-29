@@ -1,0 +1,12 @@
+{# Template override for the documentation site.
+
+   This file exists to carry site-verification and other <head> tags that MkDocs
+   does not expose through `extra` (which only defines template variables).
+
+   It extends the Material theme's base template, so everything else — analytics,
+   search, the page shell — is unchanged. #}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  <meta name="google-site-verification" content="DoTPrvAkg7nzi6mt_YwSqOWns9Sbb5hT9g1iPnl24nw" />
+{% endblock %}
