@@ -317,8 +317,11 @@ opening a 392-device canvas. That repository is also where the large-topology
 findings that became the [`SKILL.md`](SKILL.md) rules were worked out.
 
 A worked, six-device walkthrough — build, open, OSPF convergence, ping across two
-routers — lives in the [**Wiki**](../../wiki) rather than here, so this file stays a
-reference.
+routers — is [`demo/build_demo.py`](demo/build_demo.py): `pip install
+packet-tracer-pkt-format`, run it, open the file it writes. The reference material
+(format specification, schema, scene graph, verification reports) lives on the
+[docs site](https://aacanadaa.github.io/packet-tracer-pkt-format/) so this file stays
+a reference.
 
 * `tools/harvest_merge.py` — harvest one complete device of every model from a
   tree of existing `.pkt` files and merge them into one canvas, handling the
