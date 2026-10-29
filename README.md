@@ -7,7 +7,7 @@
 > modules, cabling, IOS config, PC IPs, instructions, the activity-wizard password,
 > and the scoring tree — straight to a file PT opens.
 
-<img src="https://github.com/aacanadaa/large-scale-packet-tracer/raw/main/docs/iruma/img/pt_full_topology.png" alt="A 392-device Packet Tracer enterprise model, generated entirely from code, open in Packet Tracer 9.0.1" width="100%">
+<img src="https://raw.githubusercontent.com/aacanadaa/large-scale-packet-tracer/main/docs/iruma/img/pt_full_topology.png" alt="A 392-device Packet Tracer enterprise model, generated entirely from code, open in Packet Tracer 9.0.1" width="100%">
 
 *Generated from code, opened in Packet Tracer 9.0.1. The
 [**IRUMA-AB** and **Y-AMLT** enterprise models](https://github.com/aacanadaa/large-scale-packet-tracer)
