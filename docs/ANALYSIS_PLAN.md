@@ -1,6 +1,8 @@
 # `pkt-core` — Analysis Plan (Phase 1 Output)
 
-**Status:** Phase 1 complete. Corpus acquired and verified.
+**Status:** historical working record, kept for provenance. Phase 1 complete, corpus
+acquired and verified. Everything it set out to resolve was settled; see
+[§8](#8-decisions-taken) for how the open questions were answered.
 **Date:** 2026-10-12
 **Companion artefacts:** [`CORPUS_REPORT.md`](CORPUS_REPORT.md) · [`../corpus/INTERNET_SOURCES.md`](../corpus/INTERNET_SOURCES.md) · [`../corpus/CORPUS_INDEX.tsv`](../corpus/CORPUS_INDEX.tsv)
 
@@ -230,11 +232,27 @@ production quality on the modern family without it.
 * `icc2026.zip` — password forgotten; dropped by request.
 * Full PT 5.x *application* reverse engineering — only needed if WS-1 L1–L5 fail.
 
-## 8. Open questions for you
+## 8. Decisions taken
 
-1. **Priority:** should 2a (legacy RE) drive, or should we first land a polished,
-   type-safe modern-only `pkt-core` (2b+3) and treat legacy as a follow-on?
-2. **Scope of `models`:** fully typed for every known entity (large), or typed for
-   device/link/interface/config with `extra_fields` below that?
-3. **Rust:** is `pkt-core` a Python library with an optional Rust accelerator, or a
-   genuine dual-language deliverable? This changes Phase 4 substantially.
+This section was written as three open questions for the project owner. All three have
+since been settled, and the answers are recorded here rather than left as a memo
+addressed to a reader who was not in the room.
+
+1. **Priority — legacy did not wait.** The 193 legacy containers were decoded and
+   verified before the modern path was polished, because the corpus made the problem
+   tractable and an unhandled family would have undermined every "byte-exact" claim.
+   See [`LEGACY_FORMAT.md`](LEGACY_FORMAT.md); the final tally is 1,058 of 1,058 files
+   round-tripping byte-for-byte across both families.
+
+2. **Scope of `models` — typed views over a lossless tree, with an escape hatch.**
+   `Lab`, `Device`, `Port`, `Link`, `Cluster` and `RunningConfig` are typed `pydantic`
+   views; anything unrecognised surfaces in each model's `extra_fields` instead of
+   being dropped, and untouched subtrees are re-emitted as their original bytes. Full
+   typing of every known entity was rejected: it would have to be revised on every PT
+   release, and the lossless layer already guarantees nothing is lost.
+
+3. **Rust — an optional accelerator, never a requirement.** `pkt_core_native` speeds up
+   the block ciphers when present; the pure-Python path is the reference
+   implementation, is always available, and every backend is checked against it
+   bit-for-bit in CI. There is no dual-language deliverable to maintain: the package
+   installs and runs with no compiler.

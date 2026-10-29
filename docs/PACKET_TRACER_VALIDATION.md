@@ -2,7 +2,7 @@
 
 The project proves `encode(decode(f)) == f` **byte-for-byte on 1,058 real
 containers**, which is the strongest available evidence that the codec is
-correct. This document covers the *other* claim in the brief: that the Packet
+correct. This document covers a separate and weaker question: whether the Packet
 Tracer application itself accepts what we write.
 
 ## Status
