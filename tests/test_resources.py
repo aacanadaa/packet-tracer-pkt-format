@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -81,3 +82,28 @@ def test_unknown_model_raises(tmp_path) -> None:
     lab.prune_seed_devices()
     with pytest.raises(KeyError):
         lab.add_device("NOT-A-MODEL", "X1")
+
+
+def test_pc_ip_sets_the_gateway_packet_tracer_actually_reads(tmp_path) -> None:
+    """PT reads an end device's gateway from <ENGINE><GATEWAY>.
+
+    Writing only <PORT><PORT_GATEWAY> leaves the harvested template's value in
+    place -- 1.1.1.2 on the shipped PC template -- so `ipconfig` shows a gateway
+    belonging to no network in the lab and the device cannot route off-link,
+    even though its address and mask look correct. Found by building a demo lab
+    and pinging across it; see demo/DEMO.md.
+    """
+    lab = Lab()
+    lab.prune_seed_devices()
+    lab.add_device("PC-PT", "PC1", pc_ip=("10.0.1.10", "255.255.255.0", "10.0.1.1"))
+    out = tmp_path / "gateway.pkt"
+    lab.save(out)
+
+    root = ET.fromstring(decode(out).xml)
+    device = next(d for d in root.iter("DEVICE") if d.findtext("ENGINE/NAME") == "PC1")
+    engine = device.find("ENGINE")
+    assert engine is not None
+    assert engine.findtext("GATEWAY") == "10.0.1.1"
+    port = device.find(".//PORT")
+    assert port is not None
+    assert port.findtext("PORT_GATEWAY") == "10.0.1.1"
