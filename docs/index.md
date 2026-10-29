@@ -50,6 +50,12 @@ format is detected without a magic number. The switchover from the legacy family
 
 <div class="grid cards" markdown>
 
+- **[Open a .pkt without Packet Tracer](open-pkt-without-packet-tracer.md)** — inspect
+  any save file, and see what you can and cannot get out of it.
+- **[Decrypt a .pkt to XML](decrypt-pkt-to-xml.md)** — the container layers, and how
+  to rebuild it byte-for-byte.
+- **[Generate a lab from Python](generate-lab-from-python.md)** — devices, cabling,
+  IOS config and PC addressing, written straight to a file PT opens.
 - **[Format specification](FORMAT_SPECIFICATION.md)** — the full container spec, both
   families, with the per-format key table.
 - **[Legacy format](LEGACY_FORMAT.md)** — PT 4.1 through 5.3.2, verified on 193 files.
