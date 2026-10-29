@@ -79,6 +79,10 @@ validation:
 
 nav:
   - Home: index.md
+  - Guides:
+      - Open a .pkt without Packet Tracer: open-pkt-without-packet-tracer.md
+      - Decrypt a .pkt to XML: decrypt-pkt-to-xml.md
+      - Generate a lab from Python: generate-lab-from-python.md
   - Format:
       - Format specification: FORMAT_SPECIFICATION.md
       - Legacy container: LEGACY_FORMAT.md
