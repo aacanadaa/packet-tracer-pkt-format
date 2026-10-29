@@ -17,6 +17,9 @@ copyright: GPL-3.0-or-later · aacanadaa
 theme:
   name: material
   language: en
+  # Template overrides; currently only the Google Search Console verification
+  # meta tag, which MkDocs cannot express through `extra`.
+  custom_dir: overrides
   features:
     - navigation.sections
     - navigation.top

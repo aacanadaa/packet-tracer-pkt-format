@@ -8,6 +8,7 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "hooks/**"
+      - "overrides/**"
       - "README.md"
       - "FORMAT.md"
       # so a change to this workflow runs it, rather than silently waiting for
