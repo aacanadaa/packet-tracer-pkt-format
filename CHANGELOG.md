@@ -9,6 +9,28 @@ repository are revisions of the agent skill document, not of the library. Librar
 releases are tagged `sdk-v*` and published to PyPI as
 [`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/).
 
+## [0.4.1] — 2026-10-29
+
+### Fixed
+
+- **`add_device(pc_ip=...)` wrote the default gateway where Packet Tracer does not
+  read it.** The gateway went to `<PORT><PORT_GATEWAY>`; PT reads an end device's
+  gateway from `<ENGINE><GATEWAY>`, which kept the harvested template's value —
+  `1.1.1.2` on the shipped PC template. The NIC address and mask were correct, so
+  `ipconfig` looked fine except for a gateway belonging to no network in the lab,
+  and the device could not route off-link: a ping to the far site timed out.
+
+  Found by generating a lab and actually opening it in Packet Tracer 9.0.1. Both
+  elements are now written, and `tests/test_resources.py` pins both, since writing
+  only one is the bug. See `demo/DEMO.md`.
+
+### Known issue
+
+- Serial links (`install="HWIC-2T"` with `lab.link(..., kind="serial")`) still
+  produce a container that PT 9.0.1 rejects as *"not compatible with this version"*.
+  The same topology over Gigabit opens cleanly, so the fault is in what the serial
+  link writes rather than in the codec. Not yet diagnosed.
+
 ## [0.4.0] — 2026-10-28
 
 A `pip install` can now **build** a lab, not only read one.

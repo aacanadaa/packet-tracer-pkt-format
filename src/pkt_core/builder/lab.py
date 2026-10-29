@@ -823,6 +823,15 @@ class Lab:
                 if e is None:
                     e = ET.SubElement(port, tag)
                 e.text = val
+            # PT reads an end device's default gateway from <ENGINE><GATEWAY>,
+            # not from <PORT><PORT_GATEWAY>.  Writing only the port leaves the
+            # harvested template's gateway in place, so `ipconfig` shows the
+            # donor's address (1.1.1.2 on the shipped PC template) and the device
+            # cannot route off-link even though the NIC address looks right.
+            gate = eng.find("GATEWAY")
+            if gate is None:
+                gate = ET.SubElement(eng, "GATEWAY")
+            gate.text = pc_ip[2]
         self.devs.append(el)
         self._els[sid] = el
         if install:

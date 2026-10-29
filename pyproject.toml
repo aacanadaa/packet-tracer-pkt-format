@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "packet-tracer-pkt-format"
-version = "0.4.0"
+version = "0.4.1"
 description = "Read, write and generate Cisco Packet Tracer .pkt/.pka files offline: byte-exact codec, typed models, and a reverse-engineering reference"
 readme = "README.md"
 requires-python = ">=3.10"
