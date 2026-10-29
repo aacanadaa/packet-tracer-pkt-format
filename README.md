@@ -7,6 +7,14 @@
 > modules, cabling, IOS config, PC IPs, instructions, the activity-wizard password,
 > and the scoring tree — straight to a file PT opens.
 
+<img src="https://github.com/aacanadaa/large-scale-packet-tracer/raw/main/docs/iruma/img/pt_full_topology.png" alt="A 392-device Packet Tracer enterprise model, generated entirely from code, open in Packet Tracer 9.0.1" width="100%">
+
+*Generated from code, opened in Packet Tracer 9.0.1. The
+[**IRUMA-AB** and **Y-AMLT** enterprise models](https://github.com/aacanadaa/large-scale-packet-tracer)
+are **386 and 392 devices, 752 links, 28,073 configuration lines** — twelve tiers
+deep, ASA firewalls, WLCs, IP telephony and an industrial/IoT estate. None of it was
+drawn by hand.*
+
 [![PyPI](https://img.shields.io/pypi/v/packet-tracer-pkt-format.svg)](https://pypi.org/project/packet-tracer-pkt-format/)
 [![Docs](https://img.shields.io/badge/docs-aacanadaa.github.io-4c1.svg)](https://aacanadaa.github.io/packet-tracer-pkt-format/)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
@@ -292,6 +300,25 @@ certainty.
 
 Because encoding is byte-exact, the same codec **writes** `.pkt` files.  Tools in
 [`tools/`](tools) and notes in [`docs/SCENE_GRAPH.md`](docs/SCENE_GRAPH.md):
+
+### At enterprise scale
+
+[`large-scale-packet-tracer`](https://github.com/aacanadaa/large-scale-packet-tracer)
+holds two full networks generated this way and verified to open in Packet Tracer
+9.0.1 — the models in the screenshot above:
+
+| Network | Devices | Links | Config lines | Size |
+| --- | ---: | ---: | ---: | ---: |
+| Y-AMLT (Yokohama maritime terminal) | 386 | 380 | 15,345 | 1.33 MB |
+| IRUMA-AB (JASDF air base) | 392 | 372 | 13,728 | 1.40 MB |
+
+Each ships three profiles (enterprise / standard / smoke) so you can iterate without
+opening a 392-device canvas. That repository is also where the large-topology
+findings that became the [`SKILL.md`](SKILL.md) rules were worked out.
+
+A worked, six-device walkthrough — build, open, OSPF convergence, ping across two
+routers — lives in the [**Wiki**](../../wiki) rather than here, so this file stays a
+reference.
 
 * `tools/harvest_merge.py` — harvest one complete device of every model from a
   tree of existing `.pkt` files and merge them into one canvas, handling the
