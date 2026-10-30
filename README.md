@@ -1,17 +1,17 @@
-# Build Packet Tracer labs — without Packet Tracer
+# Build Packet Tracer labs without Packet Tracer
 
 > **Create Packet Tracer `.pkt` labs and scored `.pka` activities entirely offline,
 > with no Packet Tracer installed.**  This repo reverse-engineers the Packet Tracer
-> file format — both container families, PT 4.1 through 9.0.1 — and ships a byte-exact
+> file format (both container families, PT 4.1 through 9.0.1) and ships a byte-exact
 > codec plus a generator that writes devices,
 > modules, cabling, IOS config, PC IPs, instructions, the activity-wizard password,
-> and the scoring tree — straight to a file PT opens.
+> and the scoring tree, straight to a file PT opens.
 
 <img src="https://raw.githubusercontent.com/aacanadaa/large-scale-packet-tracer/main/docs/iruma/img/pt_full_topology.png" alt="A 392-device Packet Tracer enterprise model, generated entirely from code, open in Packet Tracer 9.0.1" width="100%">
 
 *Generated from code, opened in Packet Tracer 9.0.1. The
 [**IRUMA-AB** and **Y-AMLT** enterprise models](https://github.com/aacanadaa/large-scale-packet-tracer)
-are **386 and 392 devices, 752 links, 28,073 configuration lines** — twelve tiers
+are **386 and 392 devices, 752 links, 28,073 configuration lines**, twelve tiers
 deep, ASA firewalls, WLCs, IP telephony and an industrial/IoT estate. None of it was
 drawn by hand.*
 
@@ -32,7 +32,7 @@ $ pip install packet-tracer-pkt-format
 ```
 
 Python 3.10 or newer. The only runtime dependency is `pydantic`. Reading,
-inspecting, diffing, exporting and re-writing files needs nothing else — no Packet
+inspecting, diffing, exporting and re-writing files needs nothing else: no Packet
 Tracer, no compiler, no system crypto library. `libgcrypt`, if present, and the
 optional Rust extension are picked up automatically as accelerators; the pure-Python
 ciphers are always available as the reference path.
@@ -60,7 +60,7 @@ for dev in lab.devices:
 
 ## Create a Packet Tracer, without Packet Tracer
 
-Packet Tracer is only needed to *open* the result — the lab itself is authored here.
+Packet Tracer is only needed to *open* the result. The lab itself is authored here.
 The `Lab` builder ships with the package, templates included, so this works after a
 plain `pip install` with no checkout:
 
@@ -77,7 +77,7 @@ pc = lab.add_device("PC-PT", "PC1", 650, 350,
                     pc_ip=("192.168.1.10", "255.255.255.0", "192.168.1.1"))
 lab.link(r, "GigabitEthernet0/0", sw, "GigabitEthernet0/1")
 lab.link(sw, "FastEthernet0/1", pc, "FastEthernet0")
-lab.save("my_lab.pkt")            # open in Packet Tracer — no Packet Tracer used to build it
+lab.save("my_lab.pkt")            # open in Packet Tracer; nothing above needed it
 ```
 
 ...or one-shot from a topology spec (devices + links → a scored, password-protected
@@ -113,7 +113,7 @@ Full details, evidence and the per-format key table are in **[FORMAT.md](FORMAT.
 ## The `pkt_core` library
 
 `pt9.py` is a self-contained reference codec. Alongside it, `src/pkt_core/` is the
-**type-safe library** (Python 3.10+) intended for embedding — the CLI is a thin
+**type-safe library** (Python 3.10+) intended for embedding. The CLI is a thin
 consumer of it and is never imported back into the package. Everything is checked
 under `mypy --strict` except `pkt_core.builder`, which is a port of the authoring
 code and is not yet annotated internally; its public signatures are typed.
@@ -122,7 +122,7 @@ code and is not yet annotated internally; its public signatures are typed.
 from pkt_core import decode, encode_bytes
 
 container = decode("lab.pkt")          # format is detected by the AEAD tag,
-                                       # not by a magic prefix — there isn't one
+                                       # not by a magic prefix; there isn't one
 print(container.root_tag)              # 'PACKETTRACER5'
 print(container.is_activity)           # False  (.pka -> PACKETTRACER5_ACTIVITY)
 xml = container.xml                    # the inner XML document
@@ -155,13 +155,13 @@ for link in lab.links:
 | `pkt_core.resources` | The bundled template library and seed document |
 | `pkt_core.diff` | Semantic device/link/config comparison |
 | `pkt_core.export` | `graphviz`, `netbox`, `containerlab` topology export |
-| `pkt_core.errors` | Typed exceptions — never a bare `Exception` |
+| `pkt_core.errors` | Typed exceptions, never a bare `Exception` |
 
 The models are **views over the lossless XML tree**, not a parallel data
 structure: writing a document out again emits the original source bytes for
 anything you did not touch, so data loss is impossible by construction.
 Unrecognised elements are surfaced in each model's ``extra_fields`` rather than
-dropped. IOS ``<LINE>`` config is exposed as ``bytes`` on purpose — it carries
+dropped. IOS ``<LINE>`` config is exposed as ``bytes`` on purpose: it carries
 raw ``^C`` banner delimiters that decoding would normalise away.
 
 The AEAD is **deterministic**: key and IV are fixed per format, so the keystream
@@ -171,14 +171,14 @@ rate 2^-128) instead of a magic number.
 
 Sample containers generated by this project are committed under
 [`corpus/samples/`](corpus/samples/) so the tests run out of the box. The 1,026
-third-party files used for the reverse engineering are **not** committed — see
+third-party files used for the reverse engineering are **not** committed, see
 [`corpus/README.md`](corpus/README.md) for the policy and
 [`corpus/fetch_corpus.py`](corpus/fetch_corpus.py) to reproduce them.
 
 ## Usage
 
 `pt9.py` is the original single-file reader/writer and needs no install; `pkt` is
-the full CLI. Neither requires `libgcrypt` — install it (`apt install libgcrypt20`)
+the full CLI. Neither requires `libgcrypt`; install it (`apt install libgcrypt20`)
 only if you want the accelerated cipher path.
 
 ```console
@@ -203,11 +203,11 @@ $ pkt export  my_lab.pkt --format graphviz    # graphviz / netbox / containerlab
 $ pkt audit   my_lab.pkt --templates tools/device_templates.json
 ```
 
-### `pkt audit` — why it exists
+### `pkt audit`: why it exists
 
 A count is only meaningful if the counted things are **distinct**. Early
 versions of this toolkit shipped a 290-device model whose service totals were
-inflated by template leftovers — 202 "AAA clients" of which only 140 were
+inflated by template leftovers: 202 "AAA clients" of which only 140 were
 distinct (the other 63 were one phantom `192.168.10.1` copied off a harvested
 device template onto every device), and 259 "DHCP pools" of which 131 were
 distinct. The validator asserted *presence*, so it printed `PASSED (0 warnings)`
@@ -239,8 +239,8 @@ RESULT: FAILED (15 failures, 0 warnings)
 Note the config-line row: it prints **both** figures, with the method for each
 (IOS/ASA devices selected by model, versus raw `<LINE>` elements in all 205
 blocks). The earlier documentation published one number without its method,
-which made it unreproducible. The numbers have since moved once — from
-22,579/22,827 to 22,648/22,896 — when a device that was shipping a harvested
+which made it unreproducible. The numbers have since moved once, from
+22,579/22,827 to 22,648/22,896, when a device that was shipping a harvested
 template's factory-default config was found and properly configured. That is
 the point of printing the method: the figure is checkable, so it can be seen
 to change for a reason.
@@ -262,7 +262,7 @@ Example decrypted root elements:
 ## Status / scope
 
 **Both container families are fully decoded, both directions.**
-`encode(decode(f)) == f` **byte-for-byte on 1058 of 1058 real containers** — see
+`encode(decode(f)) == f` **byte-for-byte on 1058 of 1058 real containers**, see
 [`docs/CORPUS_VERIFICATION.md`](docs/CORPUS_VERIFICATION.md).
 
 | Family | Written by | Transform | Files verified |
@@ -276,7 +276,7 @@ Example decrypted root elements:
 * **Neither family has a magic header.** Detection is verifier-based: the EAX tag
   for the modern family (false-positive rate 2⁻¹²⁸), a structural qCompress probe
   for the legacy one. The container switchover is exactly 5.3.2 → 5.3.3.
-* Documents are **not always well-formed XML** — `<LINE>` config text carries raw
+* Documents are **not always well-formed XML**: `<LINE>` config text carries raw
   control bytes (the Cisco `banner motd ^C…^C` delimiter is a literal `\x03`) and
   PT 4.1 documents end with a trailing NUL. Do not use a validating parser.
 * Three root elements exist: `PACKETTRACER5`, `PACKETTRACER5_ACTIVITY` and
@@ -305,7 +305,7 @@ Because encoding is byte-exact, the same codec **writes** `.pkt` files.  Tools i
 
 [`large-scale-packet-tracer`](https://github.com/aacanadaa/large-scale-packet-tracer)
 holds two full networks generated this way and verified to open in Packet Tracer
-9.0.1 — the models in the screenshot above:
+9.0.1. These are the models in the screenshot above:
 
 | Network | Devices | Links | Config lines | Size |
 | --- | ---: | ---: | ---: | ---: |
@@ -316,27 +316,27 @@ Each ships three profiles (enterprise / standard / smoke) so you can iterate wit
 opening a 392-device canvas. That repository is also where the large-topology
 findings that became the [`SKILL.md`](SKILL.md) rules were worked out.
 
-A worked, six-device walkthrough — build, open, OSPF convergence, ping across two
-routers — is [`demo/build_demo.py`](demo/build_demo.py): `pip install
+A worked, six-device walkthrough (build, open, OSPF convergence, ping across two
+routers) is [`demo/build_demo.py`](demo/build_demo.py): `pip install
 packet-tracer-pkt-format`, run it, open the file it writes. The reference material
 (format specification, schema, scene graph, verification reports) lives on the
 [docs site](https://aacanadaa.github.io/packet-tracer-pkt-format/) so this file stays
 a reference.
 
-* `tools/harvest_merge.py` — harvest one complete device of every model from a
+* `tools/harvest_merge.py`: harvest one complete device of every model from a
   tree of existing `.pkt` files and merge them into one canvas, handling the
   physical-workspace remapping PT requires.
-* `tools/build_wired_lab.py` — the same, **plus auto-wiring**: cables every
+* `tools/build_wired_lab.py`: the same, **plus auto-wiring**: cables every
   ethernet-capable device to a backbone of core switches and chains the cores.
-* `tools/build_configured_lab.py` — a full **working, configured** lab
+* `tools/build_configured_lab.py`: a full **working, configured** lab
   (`PC1－SW1－R1＝R2－SW2－PC2` with IPs, gateways, static routes, and an optional
   long running-config).  IOS config is written as `<RUNNINGCONFIG><LINE>…`
   commands and applied on load; PCs get `<IP>/<SUBNET>/<PORT_GATEWAY>`.  See
   [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
-* `tools/activity.py` + `tools/scoring.py` — author **activity files (`.pka`)** with the Activity Wizard: instructions (HTML), the **activity-wizard password**, permissions, feedback, the **initial / answer networks**, and the **scoring tree**.  See [`docs/ACTIVITY.md`](docs/ACTIVITY.md).
-* `tools/make_scored_lab.py` — **one-shot offline generator**: from a topology spec (`--spec`) it builds the initial + answer networks, derives scoring, and writes a scored `.pka`.  No Packet Tracer needed.  Ships with a library of **137 device templates, 75 module templates and 14 scoring shapes** (`tools/device_templates.json`, `tools/device_shapes.json`).
-* `tools/harvest_library.py` — (re)build those libraries from your own `.pkt`/`.pka` files to extend model/shape coverage.
-* `tools/lab_api.py` — a small library of the **verified authoring operations**
+* `tools/activity.py` + `tools/scoring.py`: author **activity files (`.pka`)** with the Activity Wizard: instructions (HTML), the **activity-wizard password**, permissions, feedback, the **initial / answer networks**, and the **scoring tree**.  See [`docs/ACTIVITY.md`](docs/ACTIVITY.md).
+* `tools/make_scored_lab.py`: **one-shot offline generator**: from a topology spec (`--spec`) it builds the initial + answer networks, derives scoring, and writes a scored `.pka`.  No Packet Tracer needed.  Ships with a library of **137 device templates, 75 module templates and 14 scoring shapes** (`tools/device_templates.json`, `tools/device_shapes.json`).
+* `tools/harvest_library.py`: (re)build those libraries from your own `.pkt`/`.pka` files to extend model/shape coverage.
+* `tools/lab_api.py`: a small library of the **verified authoring operations**
   (place device, power on/off, install a module, cable copper, write IOS
   `RUNNINGCONFIG`, set PC IP/DHCP).  Capability matrix + details in
   [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md).
@@ -352,7 +352,7 @@ Key facts for anyone generating files (details in the scene-graph notes):
 * Devices carry a *physical scene* placement that must be remapped when merging.
 * A cable binds by `<FROM>`/`<TO>` ids and `<PORT>` names; the device needs an
   `<ENGINE>/<SAVE_REF_ID>` and the port must exist on that exact instance.  The
-  `*_MEM_ADDR` fields are not validated — PT rebinds.
+  `*_MEM_ADDR` fields are not validated; PT rebinds.
 
 ## Legal / ethical
 
@@ -366,7 +366,7 @@ Key facts for anyone generating files (details in the scene-graph notes):
 
 ## License
 
-**GNU General Public License v3.0 or later** — see [LICENSE](LICENSE).
+**GNU General Public License v3.0 or later**. See [LICENSE](LICENSE).
 
 You may use, modify and redistribute this software under those terms, **including
 commercially**. There is no separate commercial licence to negotiate: the GPL
