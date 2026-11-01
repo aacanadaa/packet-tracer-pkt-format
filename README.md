@@ -25,6 +25,10 @@ drawn by hand.*
 
 **Languages:** English | [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="https://count.getloli.com/@aacanadaa-pkt-format?name=aacanadaa-pkt-format&theme=moebooru&padding=8&offset=0&align=top&scale=1.3&pixelated=1&darkmode=auto" alt="Visitors"/>
+</p>
+
 ## Install
 
 ```console
