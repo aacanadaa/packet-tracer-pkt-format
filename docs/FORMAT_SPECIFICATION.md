@@ -4,13 +4,13 @@
 
 | Family | Versions | Status |
 | --- | --- | --- |
-| **M** — modern | PT **5.3.3** → 9.0.1 | Complete. Byte-exact round-trip on 822 real files. |
-| **L** — legacy | PT **4.1** → 5.3.2 | Complete. Byte-exact round-trip on 192 real files. See [`LEGACY_FORMAT.md`](LEGACY_FORMAT.md). |
+| **M** — modern | PT **5.3.3** → 9.0.1 | Complete. Byte-exact round-trip on 865 real files. |
+| **L** — legacy | PT **4.1** → 5.3.2 | Complete. Byte-exact round-trip on 193 real files. See [`LEGACY_FORMAT.md`](LEGACY_FORMAT.md). |
 
-Whole-corpus proof: **1014/1014 decode and round-trip byte-exact** —
+Whole-corpus proof: **1,058/1,058 decode and round-trip byte-exact** —
 [`CORPUS_VERIFICATION.md`](CORPUS_VERIFICATION.md).
 
-**Verified against:** Cisco Packet Tracer 9.0.1.0858 (Linux x86-64), plus 1,014
+**Verified against:** Cisco Packet Tracer 9.0.1.0858 (Linux x86-64), plus 1,058
 real-world containers spanning **PT 4.1 through PT 9.0.1**.
 
 **Document caveat:** Packet Tracer documents are not always well-formed XML.

@@ -107,7 +107,9 @@ $ python3 tools/make_scored_lab.py --out mylab.pka --spec topology.json --passwo
 * 解密后的包装：每个字节与 `(len - i)` 异或。
 * 载荷：UTF-8 XML 文档的 Qt `qCompress`（zlib）。
 
-完整细节、证据与各格式密钥表见 **[FORMAT.md](FORMAT.md)**。
+现代家族的完整细节、证据与各格式密钥表见 **[FORMAT.md](FORMAT.md)**；
+两个家族（含旧版容器）的完整规范见
+**[FORMAT_SPECIFICATION.md](docs/FORMAT_SPECIFICATION.md)**。
 
 ## `pkt_core` 库
 
@@ -330,7 +332,7 @@ Packet Tracer，捕获精确的密文与明文，从而以字节级的确定性�
   以及**评分树**。见 [`docs/ACTIVITY.md`](docs/ACTIVITY.md)。
 * `tools/make_scored_lab.py`：**一次性离线生成器**：从拓扑规格（`--spec`）出发，
   构建初始与答案网络、推导评分，写出带评分的 `.pka`。无需 Packet Tracer。
-  自带 **137 个设备模板、75 个模块模板与 14 种评分形态**
+  自带 **137 个设备模板、78 个模块模板与 14 种评分形态**
   （`tools/device_templates.json`、`tools/device_shapes.json`）。
 * `tools/harvest_library.py`：从你自己的 `.pkt`/`.pka` 文件（重新）构建上述库，
   以扩展型号/形态覆盖范围。

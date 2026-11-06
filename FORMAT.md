@@ -4,6 +4,10 @@ Reverse engineered from **Cisco Packet Tracer 9.0.1.0858** (Linux x86-64 build,
 `opt/pt/bin/PacketTracer`, fully symbolized).  All statements below were
 confirmed against the live application, not only by reading code.
 
+**Scope:** this file covers the **modern** container (PT 5.3.3 through 9.0.1). The
+**legacy** container (PT 4.1 through 5.3.2) and the same ground at greater length
+are in [`docs/FORMAT_SPECIFICATION.md`](docs/FORMAT_SPECIFICATION.md).
+
 ## 1. High level
 
 A `.pkt`/`.pka` file is, from the outside in:
