@@ -112,7 +112,9 @@ plain XML Packet Tracer stores internally.
 * Post-decryption wrapper: XOR every byte with `(len - i)`.
 * Payload: Qt `qCompress` (zlib) of a UTF-8 XML document.
 
-Full details, evidence and the per-format key table are in **[FORMAT.md](FORMAT.md)**.
+Full details for the modern family, the evidence, and the per-format key table are
+in **[FORMAT.md](FORMAT.md)**. Both families, including the legacy container, are
+specified in **[FORMAT_SPECIFICATION.md](docs/FORMAT_SPECIFICATION.md)**.
 
 ## The `pkt_core` library
 
@@ -338,7 +340,7 @@ a reference.
   commands and applied on load; PCs get `<IP>/<SUBNET>/<PORT_GATEWAY>`.  See
   [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 * `tools/activity.py` + `tools/scoring.py`: author **activity files (`.pka`)** with the Activity Wizard: instructions (HTML), the **activity-wizard password**, permissions, feedback, the **initial / answer networks**, and the **scoring tree**.  See [`docs/ACTIVITY.md`](docs/ACTIVITY.md).
-* `tools/make_scored_lab.py`: **one-shot offline generator**: from a topology spec (`--spec`) it builds the initial + answer networks, derives scoring, and writes a scored `.pka`.  No Packet Tracer needed.  Ships with a library of **137 device templates, 75 module templates and 14 scoring shapes** (`tools/device_templates.json`, `tools/device_shapes.json`).
+* `tools/make_scored_lab.py`: **one-shot offline generator**: from a topology spec (`--spec`) it builds the initial + answer networks, derives scoring, and writes a scored `.pka`.  No Packet Tracer needed.  Ships with a library of **137 device templates, 78 module templates and 14 scoring shapes** (`tools/device_templates.json`, `tools/device_shapes.json`).
 * `tools/harvest_library.py`: (re)build those libraries from your own `.pkt`/`.pka` files to extend model/shape coverage.
 * `tools/lab_api.py`: a small library of the **verified authoring operations**
   (place device, power on/off, install a module, cable copper, write IOS
