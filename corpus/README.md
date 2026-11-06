@@ -24,9 +24,10 @@ What you end up with is byte-identical to what the reverse engineering ran again
 
 ## Why the binaries are not committed
 
-1. **They are not ours.** The corpus is 1,026 files harvested from ~40 public
-   repositories and archives. Only 12 of 40 upstreams ship a `LICENSE` at all;
-   under default copyright the remaining 28 are all-rights-reserved. This project
+1. **They are not ours.** The corpus is 1,026 files harvested from public
+   repositories and archives. Of the 47 upstreams in [`SOURCES.tsv`](SOURCES.tsv),
+   only 13 declare a licence at all; under default copyright the other 34 are
+   all-rights-reserved. This project
    is GPL-3.0, and GPL-3.0 does not grant us the right to relicense third-party
    works. Redistribution would be a licensing violation.
 2. **One subset is specifically off-limits.** `bbent-cis202-PTA2011__*` (60 files)
