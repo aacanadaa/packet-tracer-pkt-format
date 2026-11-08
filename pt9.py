@@ -64,15 +64,32 @@ class PacketTracerError(Exception):
 # --------------------------------------------------------------------------
 # libgcrypt block-cipher backend
 # --------------------------------------------------------------------------
-try:
-    _g = ctypes.CDLL("libgcrypt.so.20")
-except OSError:  # pragma: no cover - platform dependent
+# Names to try, in order. The soname first, then the unversioned name a -dev
+# package installs, then the Windows and macOS spellings so this file is usable
+# outside Linux.  Tested only on Linux; the fallbacks exist because the failure
+# mode without them is an unimportable module, not a clear message.
+_GCRYPT_SONAMES = (
+    "libgcrypt.so.20",
+    "libgcrypt.so",
+    "libgcrypt-20.dll",
+    "libgcrypt.dll",
+    "libgcrypt.20.dylib",
+    "libgcrypt.dylib",
+)
+
+_g = None
+for _soname in _GCRYPT_SONAMES:  # pragma: no cover - platform dependent
     try:
-        _g = ctypes.CDLL("libgcrypt.so")
-    except OSError as exc:  # pragma: no cover
-        raise PacketTracerError(
-            "libgcrypt not found (install libgcrypt20 / libgcrypt)"
-        ) from exc
+        _g = ctypes.CDLL(_soname)
+        break
+    except OSError:
+        continue
+if _g is None:  # pragma: no cover - platform dependent
+    raise PacketTracerError(
+        "libgcrypt not found (install libgcrypt20 / libgcrypt). pt9.py is the "
+        "reference codec and needs it; the pkt_core library does not, it carries "
+        "pure-Python ciphers and needs no system library."
+    )
 
 _g.gcry_check_version.restype = ctypes.c_char_p
 _g.gcry_check_version(None)

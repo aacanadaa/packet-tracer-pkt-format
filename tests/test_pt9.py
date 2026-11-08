@@ -8,9 +8,20 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import pt9  # noqa: E402
+
+# pt9.py binds libgcrypt at import time and raises if it is absent. That makes the
+# whole suite uncollectable on a machine without it (Windows, a bare CI image), so
+# the import is guarded and the class is skipped rather than failing to collect.
+# CI runs this on Linux, where the skip does not trigger.
+_pt9_error = None
+try:
+    import pt9  # noqa: E402
+except Exception as exc:  # pragma: no cover - platform dependent
+    pt9 = None  # type: ignore[assignment]
+    _pt9_error = str(exc)
 
 
+@unittest.skipIf(pt9 is None, f"libgcrypt unavailable: {_pt9_error}")
 class CodecTests(unittest.TestCase):
     def _sample(self, extra=b""):
         return (
