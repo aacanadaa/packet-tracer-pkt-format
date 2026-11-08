@@ -184,8 +184,10 @@ Rust 比 libgcrypt 快约 9 倍，比纯 Python 快 90–315 倍。三种后端�
 
 ## 用法
 
-`pt9.py` 是最初的单文件读写器，无需安装；`pkt` 是完整的 CLI。两者都不依赖
-`libgcrypt`——只有在需要加速密码路径时才装它（`apt install libgcrypt20`）。
+`pt9.py` 是最初的单文件读写器，无需安装；`pkt` 是完整的 CLI。`pkt` 不依赖
+`libgcrypt`，只有需要加速密码路径时才装它（`apt install libgcrypt20`）。
+`pt9.py` 则依赖它，因为它直接绑定 libgcrypt 来实现分组密码；在没有该库的机器上
+请改用 `pkt` 或 `pkt_core` 包，它们自带纯 Python 的密码实现。
 
 ```console
 $ python3 pt9.py info   my_lab.pkt
@@ -391,6 +393,15 @@ IoT/工业设备）在同一个文件中，Packet Tracer 能打开并正确绘�
 | [LARGE_TOPOLOGY_TEST.md](docs/LARGE_TOPOLOGY_TEST.md) | 77 设备大型拓扑的生成与实测 |
 | [PACKET_TRACER_VALIDATION.md](docs/PACKET_TRACER_VALIDATION.md) | 在真实 Packet Tracer 中的验证 |
 
+## Star history
+
+<a href="https://www.star-history.com/?repos=aacanadaa%2Fpacket-tracer-pkt-format&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&legend=top-left" />
+    <img alt="Star history chart" src="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&legend=top-left" />
+  </picture>
+</a>
 
 ---
 

@@ -184,8 +184,10 @@ third-party files used for the reverse engineering are **not** committed, see
 ## Usage
 
 `pt9.py` is the original single-file reader/writer and needs no install; `pkt` is
-the full CLI. Neither requires `libgcrypt`; install it (`apt install libgcrypt20`)
-only if you want the accelerated cipher path.
+the full CLI. `pkt` does not need `libgcrypt`: install it (`apt install
+libgcrypt20`) only for the accelerated cipher path. `pt9.py` does need it, because
+it binds libgcrypt directly for the block ciphers, so on a machine without the
+library use `pkt` or the `pkt_core` package, which carry pure-Python ciphers.
 
 ```console
 $ python3 pt9.py info   my_lab.pkt
@@ -381,4 +383,14 @@ already permits commercial use.
 Earlier releases of this project were distributed under a non-commercial
 licence. That is no longer the case, and the GPL is the only licence that
 applies from the commit that added it onwards.
+
+## Star history
+
+<a href="https://www.star-history.com/?repos=aacanadaa%2Fpacket-tracer-pkt-format&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&legend=top-left" />
+    <img alt="Star history chart" src="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&legend=top-left" />
+  </picture>
+</a>
 
