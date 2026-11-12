@@ -50,10 +50,16 @@ pure-Python ciphers are the reference path.
 | Tests and coverage | `python -m pytest tests/ --cov=pkt_core --cov-report=term-missing` |
 | Pure-Python only | `PKT_CORE_DISABLE_RUST=1 python -m pytest tests/` |
 | Native KATs | `cargo test --no-default-features` in `native/pkt_core_native` |
+| Windows | the suite and mypy, on 3.13, no coverage gate |
 
-Coverage is gated at 90%. `pkt_core.builder` is excluded from the aggregate on
-purpose; [`BUILDER_PORT.md`](BUILDER_PORT.md) explains why and tracks closing the
-gap, and its public signatures are still type-checked.
+Coverage is gated at 90%, on the Linux jobs. `pkt_core.builder` is excluded from
+the aggregate on purpose; [`BUILDER_PORT.md`](BUILDER_PORT.md) explains why and
+tracks closing the gap, and its public signatures are still type-checked.
+
+The Python package is expected to work on Windows as well as Linux, and CI
+enforces it. The Rust accelerator is Linux-verified only, because it is built
+from source rather than published as a wheel; see its README for the Windows
+build.
 
 ## The corpus
 
