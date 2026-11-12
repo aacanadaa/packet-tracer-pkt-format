@@ -183,11 +183,13 @@ third-party files used for the reverse engineering are **not** committed, see
 
 ## Usage
 
-`pt9.py` is the original single-file reader/writer and needs no install; `pkt` is
-the full CLI. `pkt` does not need `libgcrypt`: install it (`apt install
-libgcrypt20`) only for the accelerated cipher path. `pt9.py` does need it, because
-it binds libgcrypt directly for the block ciphers, so on a machine without the
-library use `pkt` or the `pkt_core` package, which carry pure-Python ciphers.
+`pt9.py` is the original single-file reader/writer; `pkt` is the full CLI. `pt9.py`
+lives in the repository and is **not** included in the published package, so the
+commands below assume a checkout. `pkt` does not need `libgcrypt`: install it
+(`apt install libgcrypt20`) only for the accelerated cipher path. `pt9.py` does
+need it, because it binds libgcrypt directly for the block ciphers, so on a
+machine without the library use `pkt` or the `pkt_core` package, which carry
+pure-Python ciphers.
 
 ```console
 $ python3 pt9.py info   my_lab.pkt

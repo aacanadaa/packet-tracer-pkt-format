@@ -184,7 +184,8 @@ Rust 比 libgcrypt 快约 9 倍，比纯 Python 快 90–315 倍。三种后端�
 
 ## 用法
 
-`pt9.py` 是最初的单文件读写器，无需安装；`pkt` 是完整的 CLI。`pkt` 不依赖
+`pt9.py` 是最初的单文件读写器；`pkt` 是完整的 CLI。`pt9.py` 只存在于仓库里，
+**没有**打包进发布的安装包，因此下面的命令需要在检出的仓库中运行。`pkt` 不依赖
 `libgcrypt`，只有需要加速密码路径时才装它（`apt install libgcrypt20`）。
 `pt9.py` 则依赖它，因为它直接绑定 libgcrypt 来实现分组密码；在没有该库的机器上
 请改用 `pkt` 或 `pkt_core` 包，它们自带纯 Python 的密码实现。
