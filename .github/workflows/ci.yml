@@ -56,8 +56,36 @@ jobs:
           PKT_CORE_DISABLE_RUST: "1"
         run: python -m pytest tests/ -p no:cacheprovider
 
-  # The accelerator is optional, but when it is present it must agree with the
-  # pure-Python reference bit-for-bit and pass the published KATs.
+  # Windows is a supported target for the Python package, and it was the one that
+  # went untested: Ubuntu-only CI is what let an import-time libgcrypt dependency
+  # break collection for the whole suite on Windows. Coverage is measured by the
+  # Linux jobs, so this one runs the suite without the coverage gate.
+  windows:
+    name: test (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest hypothesis mypy
+
+      - name: Types (mypy --strict)
+        run: python -m mypy --strict src/pkt_core
+
+      - name: Tests
+        run: python -m pytest tests/ -p no:cacheprovider
+
+  # The accelerator is verified here, on Linux only, and that is deliberate. It is
+  # optional, and it is not published as a wheel (the crate sets publish = false),
+  # so it is built from source by whoever wants it; a per-platform matrix would
+  # test a build nobody consumes. `abi3-py310` keeps that source build portable,
+  # and native/pkt_core_native/README.md documents the Windows build.
   rust:
     name: rust accelerator
     runs-on: ubuntu-latest
