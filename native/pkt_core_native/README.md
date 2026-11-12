@@ -117,6 +117,23 @@ PKT_CORE_DISABLE_RUST=1 pytest tests/     # pretend the module is not installed
 * `tests/test_ciphers.py` keeps proving `libgcrypt == published KATs` and
   `pure Python == libgcrypt`, so the three-way equality closes transitively.
 
+## Platform support
+
+CI verifies this crate on **Linux only**, and that is a decision rather than an
+oversight: the accelerator is not published as a wheel (`publish = false`), so it
+is built from source by whoever wants it, and a per-platform matrix would test a
+build nobody consumes.
+
+The code is not platform-specific: it is integer arithmetic, `abi3-py310` makes
+one built wheel valid for every CPython 3.10+, and the known-answer tests run
+under `cargo test --no-default-features`, which links no Python at all and
+therefore runs anywhere a Rust toolchain does. On Windows, build it with an MSVC
+toolchain and the same `maturin` command shown above.
+
+The Python package itself is different: `pkt_core` is tested on Linux and Windows
+in CI, and the pure-Python ciphers are the path that guarantees it needs nothing
+but a Python interpreter.
+
 ## Licence
 
 GPL-3.0-or-later, the same as the rest of pkt-core.
