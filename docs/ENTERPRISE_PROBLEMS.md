@@ -865,7 +865,8 @@ reading the file.
 
 `clear_template_startup_config()` now removes the residue. It clears rather than
 mirrors `RUNNINGCONFIG`, because that is what real labs do: across **4,729
-devices in 1,014 corpus files**, 60% have no `STARTUPCONFIG` element at all and
+devices in 1,014 corpus files** (measured on the 1,014-file snapshot, before the
+corpus grew to 1,058), 60% have no `STARTUPCONFIG` element at all and
 23% have an empty one, so **83% carry no startup config**; where one exists it is
 that lab's own. Packet Tracer loads these files from `RUNNINGCONFIG` — 123 of the
 290 devices here already had an empty startup config and loaded correctly.
