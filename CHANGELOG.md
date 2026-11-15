@@ -9,6 +9,17 @@ repository are revisions of the agent skill document, not of the library. Librar
 releases are tagged `sdk-v*` and published to PyPI as
 [`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/).
 
+## [0.4.2] — 2026-11-15
+
+### Added
+
+- **`python -m pkt_core.cli`** — added `src/pkt_core/cli/__main__.py` so the CLI
+  can be invoked directly as a module without a console-script install.
+
+### Changed
+
+- Documentation, README, demo, and Windows CI updates since `0.4.1`.
+
 ## [0.4.1] — 2026-10-29
 
 ### Fixed
