@@ -7,7 +7,7 @@
 name = "pkt-core-native"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.83"
 license = "GPL-3.0-or-later"
 description = "Optional Rust accelerator for pkt-core's crypto hot path (Twofish, Serpent, CAST-256)"
 repository = "https://github.com/aacanadaa/packet-tracer-pkt-format"

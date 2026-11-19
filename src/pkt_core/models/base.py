@@ -30,7 +30,7 @@ from typing import ClassVar, Iterable, TypeVar
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-from pkt_core.xml.nodes import XmlElement, XmlNode, XmlText
+from pkt_core.xml.nodes import XmlElement, XmlNode, XmlText, escape_xml_text
 
 __all__ = ["PktNode", "unknown_children"]
 
@@ -143,7 +143,7 @@ class PktNode(BaseModel):
         value = self._text(name)
         try:
             return int(float(value))
-        except ValueError:
+        except (ValueError, OverflowError):
             return default
 
     def _set_text(self, name: str, value: str) -> None:
@@ -152,7 +152,7 @@ class PktNode(BaseModel):
         if child is None:
             child = XmlElement(name=name.encode("utf-8"))
             self._el.append(child)
-        child.children = [XmlText(data=value.encode("utf-8"))]
+        child.children = [XmlText(data=escape_xml_text(value).encode("utf-8"))]
         child._dirty = True
         self._el._dirty = True
 
@@ -160,5 +160,10 @@ class PktNode(BaseModel):
         return self._el.find_all(name)
 
     # -- pydantic plumbing -------------------------------------------------
+    def __eq__(self, other: object) -> bool:
+        if type(self) is not type(other):
+            return NotImplemented
+        return self._el is other._el
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"{type(self).__name__}(<{self.tag}>)"

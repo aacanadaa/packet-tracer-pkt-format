@@ -12,7 +12,7 @@ from pkt_core.models.schema import (
     WirelessConfig,
 )
 from pkt_core.models.services import DeviceServices
-from pkt_core.xml.nodes import XmlElement, XmlText
+from pkt_core.xml.nodes import XmlElement, XmlText, escape_xml_text
 
 __all__ = ["Port", "Module", "Workspace", "Device", "Cable", "Link", "PowerState"]
 
@@ -53,6 +53,11 @@ class Port(PktNode):
     def type(self) -> str:
         """Media/port kind, e.g. ``eCopperFastEthernet``."""
         return self._text("TYPE")
+
+    @property
+    def power(self) -> bool:
+        """Whether the port is administratively powered on (defaults to True)."""
+        return self._bool("POWER", default=True)
 
     @property
     def mac_address(self) -> str:
@@ -169,10 +174,20 @@ class Workspace(PktNode):
 
     @property
     def dev_addr(self) -> str:
+        node = self.logical
+        if node is not None:
+            val = Workspace.from_element(node)._text("DEV_ADDR")
+            if val:
+                return val
         return self._text("DEV_ADDR")
 
     @property
     def mem_addr(self) -> str:
+        node = self.logical
+        if node is not None:
+            val = Workspace.from_element(node)._text("MEM_ADDR")
+            if val:
+                return val
         return self._text("MEM_ADDR")
 
 
@@ -230,7 +245,7 @@ class Device(PktNode):
         if node is None:
             node = XmlElement(name=b"NAME")
             engine.append(node)
-        node.children = [XmlText(data=value.encode("utf-8"))]
+        node.children = [XmlText(data=escape_xml_text(value).encode("utf-8"))]
         node._dirty = True
         engine._dirty = True
         self._el._dirty = True

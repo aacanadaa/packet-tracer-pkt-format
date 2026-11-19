@@ -40,6 +40,7 @@ portable path still works).  :func:`get_cipher` also accepts an explicit
 from __future__ import annotations
 
 import ctypes
+import ctypes.util
 import os
 from typing import TYPE_CHECKING, Callable, Final, Literal, Protocol, runtime_checkable
 
@@ -82,7 +83,7 @@ CIPHER_KEY_SIZES: Final[dict[str, tuple[int, ...]]] = {
     "serpent128": (16,),
     "serpent192": (24,),
     "serpent256": (32,),
-    "cast256": (16, 24, 32),
+    "cast256": (16, 20, 24, 28, 32),
     "aes": (16, 24, 32),
 }
 
@@ -138,6 +139,8 @@ class _Libgcrypt:
             ctypes.c_uint,
         ]
         lib.gcry_cipher_open.restype = ctypes.c_int
+        lib.gcry_cipher_close.argtypes = [ctypes.c_void_p]
+        lib.gcry_cipher_close.restype = None
         lib.gcry_cipher_setkey.argtypes = [
             ctypes.c_void_p,
             ctypes.c_char_p,
@@ -155,7 +158,21 @@ class _Libgcrypt:
 
     @staticmethod
     def _load() -> ctypes.CDLL:
-        for name in ("libgcrypt.so.20", "libgcrypt.so"):
+        candidates: list[str] = []
+        found = ctypes.util.find_library("gcrypt")
+        if found:
+            candidates.append(found)
+        for name in (
+            "libgcrypt.so.20",
+            "libgcrypt.so",
+            "libgcrypt.20.dylib",
+            "libgcrypt.dylib",
+            "libgcrypt-20.dll",
+            "libgcrypt.dll",
+        ):
+            if name not in candidates:
+                candidates.append(name)
+        for name in candidates:
             try:
                 return ctypes.CDLL(name)
             except OSError:
@@ -178,6 +195,9 @@ class _Libgcrypt:
             raise UnsupportedCipherError(f"gcry_cipher_open failed for {name!r}")
         return handle
 
+    def close(self, handle: ctypes.c_void_p) -> None:
+        self._lib.gcry_cipher_close(handle)
+
     def setkey(self, handle: ctypes.c_void_p, key: bytes) -> None:
         if self._lib.gcry_cipher_setkey(handle, key, len(key)) != 0:
             raise UnsupportedCipherError(f"gcry_cipher_setkey rejected {len(key)}-byte key")
@@ -189,17 +209,21 @@ class _Libgcrypt:
         return out.raw
 
 
+_LIB_PROBED: bool = False
 _LIB: _Libgcrypt | None = None
 
 
 def _libgcrypt() -> _Libgcrypt | None:
-    global _LIB
-    if _LIB is None:
-        try:
-            _LIB = _Libgcrypt()
-        except UnsupportedCipherError:
-            return None
-    return _LIB
+    global _LIB_PROBED, _LIB
+    if _LIB_PROBED:
+        return _LIB
+    try:
+        lib: _Libgcrypt | None = _Libgcrypt()
+    except UnsupportedCipherError:
+        lib = None
+    _LIB = lib
+    _LIB_PROBED = True
+    return lib
 
 
 class LibgcryptCipher:
@@ -210,6 +234,8 @@ class LibgcryptCipher:
     key_size: int
 
     def __init__(self, name: str, key: bytes) -> None:
+        self._handle: ctypes.c_void_p | None = None
+        self._lib: _Libgcrypt | None = None
         lib = _libgcrypt()
         if lib is None or not lib.has(name):
             raise UnsupportedCipherError(f"{name!r} is not available in libgcrypt")
@@ -217,16 +243,35 @@ class LibgcryptCipher:
             raise ValueError(f"{name} does not accept a {len(key)}-byte key")
         self._name = name
         self.key_size = len(key)
-        self._handle = lib.open(name)
-        lib.setkey(self._handle, key)
+        handle = lib.open(name)
+        try:
+            lib.setkey(handle, key)
+        except Exception:
+            lib.close(handle)
+            raise
+        self._lib = lib
+        self._handle = handle
+
+    def close(self) -> None:
+        """Release the underlying libgcrypt cipher handle (idempotent)."""
+        handle = self._handle
+        lib = self._lib
+        if handle is not None and lib is not None:
+            self._handle = None
+            lib.close(handle)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:  # pragma: no cover - interpreter shutdown
+            pass
 
     def encrypt_block(self, block: bytes) -> bytes:
         if len(block) != BLOCK_SIZE:
             raise ValueError(f"block must be {BLOCK_SIZE} bytes, got {len(block)}")
-        lib = _libgcrypt()
-        if lib is None:  # pragma: no cover - already constructed
-            raise UnsupportedCipherError("libgcrypt disappeared")
-        return lib.encrypt(self._handle, block)
+        if self._handle is None or self._lib is None:
+            raise ValueError("cipher handle is closed")
+        return self._lib.encrypt(self._handle, block)
 
 
 # --------------------------------------------------------------------------
@@ -248,6 +293,11 @@ _RUST_PROBED: bool = False
 _RUST_CIPHER_CLS: Callable[..., NativeCipher] | None = None
 
 
+def _rust_disabled_by_env() -> bool:
+    raw = os.environ.get("PKT_CORE_DISABLE_RUST", "").strip().lower()
+    return raw not in ("", "0", "false", "no", "off")
+
+
 def _rust_cipher_class() -> Callable[..., NativeCipher] | None:
     """Lazily probe for the Rust accelerator's ``Cipher`` class.
 
@@ -257,17 +307,16 @@ def _rust_cipher_class() -> Callable[..., NativeCipher] | None:
     global _RUST_PROBED, _RUST_CIPHER_CLS
     if _RUST_PROBED:
         return _RUST_CIPHER_CLS
-    _RUST_PROBED = True
-    if os.environ.get("PKT_CORE_DISABLE_RUST"):
-        return None
-    try:
-        import pkt_core_native  # typed by typings/pkt_core_native.pyi
-    except Exception:  # pragma: no cover - absent or broken extension
-        return None
-    cipher_cls: Callable[..., NativeCipher] | None = getattr(pkt_core_native, "Cipher", None)
-    if cipher_cls is None:  # pragma: no cover - malformed extension
-        return None
+    cipher_cls: Callable[..., NativeCipher] | None = None
+    if not _rust_disabled_by_env():
+        try:
+            import pkt_core_native  # typed by typings/pkt_core_native.pyi
+        except Exception:  # pragma: no cover - absent or broken extension
+            cipher_cls = None
+        else:
+            cipher_cls = getattr(pkt_core_native, "Cipher", None)
     _RUST_CIPHER_CLS = cipher_cls
+    _RUST_PROBED = True
     return cipher_cls
 
 
@@ -441,7 +490,13 @@ def get_cipher(
 
 def encrypt_block(name: str, key: bytes, block: bytes) -> bytes:
     """One-shot convenience: encrypt a single block."""
-    return get_cipher(name, key).encrypt_block(block)
+    cipher = get_cipher(name, key)
+    try:
+        return cipher.encrypt_block(block)
+    finally:
+        close = getattr(cipher, "close", None)
+        if callable(close):
+            close()
 
 
 def available_backends() -> list[str]:
@@ -466,9 +521,12 @@ def cipher_available(name: str) -> bool:
     if not sizes:
         return False
     try:
-        get_cipher(name, b"\x00" * sizes[0])
+        cipher = get_cipher(name, b"\x00" * sizes[0])
     except (UnsupportedCipherError, ValueError):
         return False
+    close = getattr(cipher, "close", None)
+    if callable(close):
+        close()
     return True
 
 

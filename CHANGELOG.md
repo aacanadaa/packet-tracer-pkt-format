@@ -9,6 +9,71 @@ repository are revisions of the agent skill document, not of the library. Librar
 releases are tagged `sdk-v*` and published to PyPI as
 [`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/).
 
+## [0.4.3] — 2026-11-19
+
+### Security & Robustness
+
+- **Prevent `libgcrypt` handle leaks** in `pkt_core.crypto.ciphers` and `pt9.py`
+  by binding and calling `gcry_cipher_close` (including on `setkey` failure,
+  in `cipher_available()`, and via `close()` / `__del__`). Added cross-platform
+  library discovery (`ctypes.util.find_library` / `.dylib` / `.dll`) and cached
+  failed probes.
+- **Bound `quncompress()` against decompression bombs** using
+  `zlib.decompressobj().decompress(..., max_length=expected + 1)` and wrap
+  `struct.error` / `zlib.error` in `qcompress()` as `CompressionError`.
+- **Constant-time EAX tag comparison** via `hmac.compare_digest` in
+  `EaxResult.valid` and `eax_verify()`; validate `len(nonce) == 16` in
+  `ctr_crypt()`.
+- **XML parser and writer hardening**: escape `&`, `<`, and active quotes in
+  `XmlElement.set()`; add `escape_xml_text()` and use it in `PktNode._set_text()`,
+  `Device.set_name()`, and `builder.Lab`; enforce a 512-level nesting limit
+  raising `FormatError` instead of `RecursionError`; reject leading `</` and
+  empty tag names; preserve trailing `XmlText` on EOF; mark `writer.element()`
+  dirty on creation.
+- **Native Rust extension (`pkt_core_native`)**: guard `index >= 12` in
+  `cast256_quad_round` to return `ValueError` instead of panicking, allocate
+  output directly via `PyBytes::new_with` in `encrypt_blocks`, update MSRV to
+  Rust 1.83, and add `cast256_quad_round` to `typings/pkt_core_native.pyi`.
+- **CI & Docker hardening**: pass `inputs.tag` via `env:` in `publish.yml`,
+  validate distributions with `twine check`, auto-create missing GitHub
+  Releases, lowercase GHCR repository names, tag `:latest` only on tag pushes,
+  validate docs on pull requests in `docs.yml`, and run `Dockerfile` as a
+  non-root user after cleaning `/app`.
+
+### Fixed
+
+- **Crypto & Codec**: align `CIPHER_KEY_SIZES["cast256"]` to RFC 2612
+  `(16, 20, 24, 28, 32)`; parse `PKT_CORE_DISABLE_RUST=0`/`false` properly and
+  assign `_RUST_CIPHER_CLS` before `_RUST_PROBED = True`; fix `root_tag()` to
+  skip XML declarations/comments/prologues and guard empty `<>`; allow valid
+  legacy containers `>= 6` bytes; wrap unknown format `KeyError` as
+  `FormatError`; compute `layer_a` once per decode/detect; use an O(1) 6-byte
+  probe in `_looks_like_legacy()`; make `eax_verify()` CMAC-only and accelerate
+  `_xor()` / `ctr_crypt()` with integer XOR and bulk `encrypt_blocks`.
+- **Models, Audit, Diff & Export**: implement `PktNode.__eq__` on `_el` and
+  catch `OverflowError` in `_int()`; fix `Workspace.dev_addr`/`mem_addr`,
+  `Port.power`, `Lab.canvas_shapes` direct-child iteration, `.pka` nested
+  `<PACKETTRACER5>` resolution, `ScoringNode.children`, `CanvasShape.bounds`,
+  and duplicate `PortConfig._claimed` entry; scope `aaa_users` to `<ACS_SERVER>`
+  and DHCPv4 port-binding stripping to `<DHCP_SERVERS>`/`<DHCP_SERVER>`; guard
+  `engine is None` in `inventory()`; include embedded DNS servers; extract
+  `<TYPE model>` when passing `<ENGINE>` directly to `sanitize_engine()`; fix
+  `format_identity(("", ""))` and 0-server count in `ServiceInventory.summary()`;
+  use `difflib.SequenceMatcher` and canonicalized/disambiguated links in
+  `diff_labs()`; inherit `ExportError` from `(PacketTracerError, ValueError)`,
+  fix Graphviz `\n` double-escaping, map NetBox `enabled` to `port.power`, and
+  safely quote/deduplicate YAML in `to_containerlab()`.
+- **Builder, CLI & Docs**: copy `models`/`modules` dicts and use a context
+  manager in `builder.Lab.__init__()`; validate `model`, `pc_ip`, `kind`, and
+  `dce` before mutating state; support `slot=` in `add_device()`; fix
+  multi-module serial port resolution in `_set_serial_port()`; skip empty
+  pattern lists in `load_tier_map()`; output pure JSON in `pkt info --json` and
+  hide `key byte`/`iv byte` for legacy containers; deduplicate `.cfg` filenames
+  in `pkt unpack`; fix `pkt diff` exit status and `--unified` on layout-only
+  diffs; add `--version` and catch `(OSError, ValueError, KeyError)` in `main()`;
+  handle `#anchor` fragments and directory `/tree/` links in
+  `hooks/rewrite_repo_links.py`; update stale `README.md` notes.
+
 ## [0.4.2] — 2026-11-15
 
 ### Added
@@ -133,12 +198,3 @@ First release under the `packet-tracer-pkt-format` name on PyPI.
   through 9.0.1, and the round trip is exercised in the release verification.
 - Generation of new labs still requires the `tools/` generators from a checkout;
   moving them into the package is the next release. See `BUILDER_PORT.md`.
-
-## [Unreleased]
-
-### Planned
-
-- Ship the device/module templates as package data, and move the authoring API from
-  `tools/lab_api.py` into `pkt_core.builder`, so `pip install` can generate a lab
-  without a checkout.
-- Documentation site on GitHub Pages.

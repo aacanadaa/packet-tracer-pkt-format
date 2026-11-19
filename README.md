@@ -199,7 +199,7 @@ xml bytes : 1045755
 $ python3 pt9.py decode my_lab.pkt -o my_lab.xml
 $ python3 pt9.py decode course_activity.pka -o activity.xml      # .pka uses the same container
 $ python3 pt9.py encode my_lab.xml -o my_lab.pkt                 # write it back
-$ python3 -m unittest discover -s tests -v                       # self-tests
+$ pytest tests/                                                  # self-tests
 ```
 
 The `pkt` entry point adds inspection, diffing, export and auditing:
@@ -292,9 +292,10 @@ Example decrypted root elements:
 * Three root elements exist: `PACKETTRACER5`, `PACKETTRACER5_ACTIVITY` and
   `PACKETTRACER_ACTIVITY` (PT 4.x). Root element is **not** a container
   discriminator.
-* `.pkt`/`.pka` are fully supported. The `.pta`/`.pkc` (Serpent) and internal
-  `sm`/`userapp` (CAST-256) flavours are specified but need a crypto backend
-  with Serpent/CAST-256 (stock `libgcrypt` has neither).
+* `.pkt`/`.pka` (Twofish), `.pta`/`.pkc` (Serpent), and internal `sm`/`userapp`
+  (CAST-256) flavours are all supported by `pkt_core` via its built-in
+  pure-Python ciphers and optional Rust accelerator (`pt9.py` uses `libgcrypt`,
+  which covers Twofish and Serpent but not CAST-256).
 
 ## How it was found
 

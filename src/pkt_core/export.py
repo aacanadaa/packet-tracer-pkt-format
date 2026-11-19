@@ -8,8 +8,10 @@ interoperability.
 
 from __future__ import annotations
 
-from typing import Callable, Iterable
+import json
+from typing import Callable
 
+from pkt_core.errors import PacketTracerError
 from pkt_core.models import Device, Lab, Link
 
 __all__ = [
@@ -22,12 +24,27 @@ __all__ = [
 ]
 
 
-class ExportError(ValueError):
+class ExportError(PacketTracerError, ValueError):
     """An unknown export format was requested."""
 
 
 def _escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+_YAML_RESERVED = frozenset({"true", "false", "yes", "no", "on", "off", "null", "~"})
+
+
+def _yaml_quote(value: str) -> str:
+    """Safely render a YAML scalar, double-quoting anything not a bare identifier."""
+    if (
+        value
+        and value.lower() not in _YAML_RESERVED
+        and (value[0].isalpha() or value[0] == "_")
+        and all(ch.isalnum() or ch in "-_" for ch in value)
+    ):
+        return value
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _yaml_key(value: str) -> str:
@@ -94,8 +111,9 @@ def to_graphviz(lab: Lab, *, name: str = "topology") -> str:
     for i, dev in enumerate(_nodes(lab)):
         key = f"d{i}"
         key_of[dev.name] = key
-        label = f"{dev.name}\\n{dev.kind} {dev.model}".strip()
-        lines.append(f'  {key} [label="{_escape(label)}"];')
+        subtitle = f"{dev.kind} {dev.model}".strip()
+        label = f"{_escape(dev.name)}\\n{_escape(subtitle)}" if subtitle else _escape(dev.name)
+        lines.append(f'  {key} [label="{label}"];')
 
     resolve = _endpoint_names(lab)
     for link in _edges(lab):
@@ -126,12 +144,8 @@ def to_netbox(lab: Lab) -> str:
     platforms, interface names, MACs and link peers. Cable-less links are
     omitted because NetBox has no peer to record.
     """
-    import json
-
     devices: list[dict[str, object]] = []
-    by_ref: dict[str, str] = {}
-    for i, dev in enumerate(_nodes(lab)):
-        by_ref[f"save-ref-id:{i}"] = dev.name
+    for dev in _nodes(lab):
         devices.append(
             {
                 "name": dev.name,
@@ -145,7 +159,7 @@ def to_netbox(lab: Lab) -> str:
                         "type": port.type,
                         "mac_address": port.mac_address or None,
                         "speed": port.bandwidth or None,
-                        "enabled": port.full_duplex,
+                        "enabled": port.power,
                     }
                     for idx, port in enumerate(dev.ports)
                 ],
@@ -192,14 +206,24 @@ def to_containerlab(lab: Lab, *, topology_name: str = "pkt") -> str:
     a lab, not a runnable definition.
     """
     lines: list[str] = [
-        "name: " + topology_name,
+        f"name: {_yaml_quote(topology_name)}",
         "topology:",
         "  nodes:",
     ]
+    used_keys: set[str] = set()
+    node_key_by_name: dict[str, str] = {}
     for dev in _nodes(lab):
+        base = _yaml_key(dev.name)
+        node_key = base
+        suffix = 2
+        while node_key in used_keys:
+            node_key = f"{base}-{suffix}"
+            suffix += 1
+        used_keys.add(node_key)
+        node_key_by_name.setdefault(dev.name, node_key)
         kind = _yaml_key(dev.kind.lower()) or "unknown"
-        lines.append(f"    {_yaml_key(dev.name)}:")
-        lines.append(f"      kind: {kind}")
+        lines.append(f"    {node_key}:")
+        lines.append(f"      kind: {_yaml_quote(kind)}")
         lines.append(f"      # packet-tracer model: {dev.model}")
         if dev.position != (0.0, 0.0):
             lines.append(f"      # canvas position: {dev.position[0]:.0f},{dev.position[1]:.0f}")
@@ -212,9 +236,11 @@ def to_containerlab(lab: Lab, *, topology_name: str = "pkt") -> str:
         ports = link.port_names
         name_a = resolve.get(refs[0], refs[0])
         name_b = resolve.get(refs[1], refs[1])
-        a = f"{_yaml_key(name_a)}{':' + ports[0] if ports else ''}"
-        b = f"{_yaml_key(name_b)}{':' + ports[1] if len(ports) > 1 else ''}"
-        lines.append(f"    - endpoints: [{a}, {b}]")
+        key_a = node_key_by_name.get(name_a, _yaml_key(name_a))
+        key_b = node_key_by_name.get(name_b, _yaml_key(name_b))
+        ep_a = f"{key_a}:{ports[0]}" if ports else key_a
+        ep_b = f"{key_b}:{ports[1]}" if len(ports) > 1 else key_b
+        lines.append(f"    - endpoints: [{_yaml_quote(ep_a)}, {_yaml_quote(ep_b)}]")
     return "\n".join(lines) + "\n"
 
 

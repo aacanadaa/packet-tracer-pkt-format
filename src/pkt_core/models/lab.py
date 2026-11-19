@@ -207,14 +207,37 @@ class Lab(PktNode):
                     break
         return Network.from_element(node) if node is not None else None
 
+    def _content_root(self) -> XmlElement:
+        """Return the ``<PACKETTRACER5>`` element holding lab data.
+
+        For plain ``.pkt`` files this is the document root itself; for ``.pka``
+        activities (``<PACKETTRACER5_ACTIVITY>``) it resolves the nested
+        ``<PACKETTRACER5>`` document if present.
+        """
+        if self._el.tag == "PACKETTRACER5":
+            return self._el
+        for desc in self._el.iter_elements():
+            if desc.tag == "PACKETTRACER5":
+                return desc
+        return self._el
+
+    def _find_lab_section(self, tag: str) -> XmlElement | None:
+        node = self._el.find(tag)
+        if node is not None:
+            return node
+        content = self._content_root()
+        if content is not self._el:
+            return content.find(tag)
+        return None
+
     @property
     def options(self) -> LabOptions | None:
-        node = self._el.find("OPTIONS")
+        node = self._find_lab_section("OPTIONS")
         return LabOptions.from_element(node) if node is not None else None
 
     @property
     def clusters(self) -> list[Cluster]:
-        node = self._el.find("CLUSTERS")
+        node = self._find_lab_section("CLUSTERS")
         if node is None:
             return []
         out: list[Cluster] = []
@@ -243,10 +266,14 @@ class Lab(PktNode):
         """Drawing primitives across LINES / RECTANGLES / ELLIPSES / POLYGONS."""
         out: list[CanvasShape] = []
         for tag in ("LINES", "RECTANGLES", "ELLIPSES", "POLYGONS", "GEOVIEW_GRAPHICSITEMS"):
-            node = self._el.find(tag)
+            node = self._find_lab_section(tag)
             if node is None:
                 continue
-            out.extend(CanvasShape.from_element(c) for c in node.iter_elements())
+            out.extend(
+                CanvasShape.from_element(c)
+                for c in node.children
+                if isinstance(c, XmlElement)
+            )
         return out
 
     @property

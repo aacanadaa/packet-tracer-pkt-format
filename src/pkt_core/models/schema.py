@@ -59,7 +59,7 @@ class PortConfig(PktNode):
             "VLAN", "VLANS", "VLAN_NUMBER", "MAC_ADDRESS", "PORT_NAME",
             "IPV6_ENABLED", "IPV6_ADDRESS_AUTOCONFIG", "IPV6_PORT_GATEWAY",
             "IPV6_PORT_DNS", "IPV6_LINK_LOCAL", "IPV6_DEFAULT_LINK_LOCAL",
-            "IPV6_PORT_DHCP_ENABLED", "IPV6_ADDRESSES", "IPV6_PORT_GATEWAY",
+            "IPV6_PORT_DHCP_ENABLED", "IPV6_ADDRESSES",
             "ND_SUPPRESSED", "ND_IPV6_DNS_ADDRESSES",
             "PC_FIREWALL", "PC_IPV6_FIREWALL", "IP_UNNUMBERED",
             "DHCPV6_ENABLED", "DHCPV6_CLIENT", "GATEWAYV6", "IAID",
@@ -315,10 +315,8 @@ class ScoringNode(PktNode):
     def children(self) -> list["ScoringNode"]:
         """Nested nodes, found under ``COMPONENTS`` and as direct ``NODE``s."""
         out: list[ScoringNode] = []
-        for tag in ("COMPONENTS", "NODE"):
-            node = self._el.find(tag)
-            if node is not None:
-                out.extend(ScoringNode.from_element(n) for n in node.find_all("NODE"))
+        for comp in self._children("COMPONENTS"):
+            out.extend(ScoringNode.from_element(n) for n in comp.find_all("NODE"))
         out.extend(ScoringNode.from_element(n) for n in self._children("NODE"))
         return out
 
@@ -436,15 +434,26 @@ class CanvasShape(PktNode):
             (self._float("X2"), self._float("Y2")),
         )
 
+    def _first_float(self, *tags: str, default: float = 0.0) -> float:
+        for tag in tags:
+            if self._el.find(tag) is not None:
+                return self._float(tag, default)
+        return default
+
     @property
     def bounds(self) -> tuple[float, float, float, float]:
         """``(x, y, w, h)`` for rectangles and ellipses."""
-        return (
-            self._float("TopLeftX") or self._float("X"),
-            self._float("TopLeftY") or self._float("Y"),
-            self._float("BottomRightX") or self._float("W") or self._float("WIDTH"),
-            self._float("BottomRightY") or self._float("H") or self._float("HEIGHT"),
-        )
+        x = self._first_float("TopLeftX", "X")
+        y = self._first_float("TopLeftY", "Y")
+        if self._el.find("BottomRightX") is not None:
+            w = self._float("BottomRightX") - x
+        else:
+            w = self._first_float("W", "WIDTH")
+        if self._el.find("BottomRightY") is not None:
+            h = self._float("BottomRightY") - y
+        else:
+            h = self._first_float("H", "HEIGHT")
+        return (x, y, w, h)
 
     @property
     def label(self) -> str:

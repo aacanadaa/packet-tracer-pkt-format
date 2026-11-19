@@ -13,9 +13,10 @@ compared as :class:`bytes` and never decoded.
 
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass, field
 
-from pkt_core.models import Device, Lab, RunningConfig
+from pkt_core.models import Device, Lab, Link, RunningConfig
 
 __all__ = ["DeviceDiff", "LinkDiff", "ConfigDiff", "LabDiff", "diff_labs"]
 
@@ -117,12 +118,50 @@ def _port_fields(dev: Device) -> dict[str, str]:
     return out
 
 
-def _link_identity(endpoints: tuple[str, str] | None, ports: list[str]) -> str:
-    if endpoints is None:
-        return "(no endpoints)"
-    a, b = endpoints
-    pair = " | ".join(sorted(ports)) if ports else ""
-    return f"{a} <-> {b} {pair}".strip()
+def _endpoint_resolver(lab: Lab) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for dev in lab.devices:
+        if dev.dev_addr:
+            names[dev.dev_addr] = dev.name
+    for link in lab.links:
+        cable = link.cable
+        if cable is None:
+            continue
+        for addr, ref in (
+            (cable.from_device_addr, cable.from_ref),
+            (cable.to_device_addr, cable.to_ref),
+        ):
+            if addr and addr in names and ref:
+                names.setdefault(ref, names[addr])
+    return names
+
+
+def _link_identity(link: Link, resolve: dict[str, str]) -> str:
+    cable = link.cable
+    if cable is None:
+        return f"(no endpoints:{link.type})" if link.type else "(no endpoints)"
+    a_dev = resolve.get(cable.from_device_addr) or resolve.get(cable.from_ref) or cable.from_ref
+    b_dev = resolve.get(cable.to_device_addr) or resolve.get(cable.to_ref) or cable.to_ref
+    ports = cable.ports
+    a_port = ports[0] if len(ports) > 0 else ""
+    b_port = ports[1] if len(ports) > 1 else ""
+    ep_a = f"{a_dev}:{a_port}" if a_port else a_dev
+    ep_b = f"{b_dev}:{b_port}" if b_port else b_dev
+    lo, hi = sorted((ep_a, ep_b))
+    return f"{lo} <-> {hi}"
+
+
+def _index_links(lab: Lab) -> dict[str, tuple[str, str]]:
+    resolve = _endpoint_resolver(lab)
+    counts: dict[str, int] = {}
+    indexed: dict[str, tuple[str, str]] = {}
+    for link in lab.links:
+        base = _link_identity(link, resolve)
+        idx = counts.get(base, 0) + 1
+        counts[base] = idx
+        ident = base if idx == 1 else f"{base} #{idx}"
+        indexed[ident] = (link.type, link.cable_type)
+    return indexed
 
 
 def _config_for(dev: Device) -> list[bytes]:
@@ -160,14 +199,8 @@ def diff_labs(a: Lab, b: Lab) -> LabDiff:
         if da is None:
             result.devices.append(DeviceDiff(name=name, added=True))
             continue
-        changes = {
-            k: (va, vb)
-            for k, (va, vb) in (
-                (k, (_device_fields(da)[k], _device_fields(db)[k]))
-                for k in _device_fields(da)
-            )
-            if va != vb
-        }
+        fa, fb = _device_fields(da), _device_fields(db)
+        changes = {k: (fa[k], fb[k]) for k in fa if fa[k] != fb[k]}
         pa, pb = _port_fields(da), _port_fields(db)
         port_changes = {
             k: (pa.get(k, ""), pb.get(k, ""))
@@ -179,17 +212,8 @@ def diff_labs(a: Lab, b: Lab) -> LabDiff:
                 DeviceDiff(name=name, changes=changes, port_changes=port_changes)
             )
 
-    a_links: dict[str, LinkDiff] = {}
-    for link in a.links:
-        ident = _link_identity(link.endpoints, link.port_names)
-        a_links[ident] = LinkDiff(
-            identity=ident,
-            changes={"type": (link.type, link.type), "cable": (link.cable_type, link.cable_type)},
-        )
-    b_links: dict[str, tuple[str, str]] = {}
-    for link in b.links:
-        ident = _link_identity(link.endpoints, link.port_names)
-        b_links[ident] = (link.type, link.cable_type)
+    a_links = _index_links(a)
+    b_links = _index_links(b)
 
     for ident in sorted(set(a_links) | set(b_links)):
         if ident not in b_links:
@@ -197,8 +221,7 @@ def diff_labs(a: Lab, b: Lab) -> LabDiff:
         elif ident not in a_links:
             result.links.append(LinkDiff(identity=ident, added=True))
         else:
-            atype = a_links[ident].changes["type"][0]
-            acable = a_links[ident].changes["cable"][0]
+            atype, acable = a_links[ident]
             btype, bcable = b_links[ident]
             link_changes: dict[str, tuple[str, str]] = {}
             if atype != btype:
@@ -212,9 +235,17 @@ def diff_labs(a: Lab, b: Lab) -> LabDiff:
         ca, cb = _config_for(a_devs[name]), _config_for(b_devs[name])
         if ca == cb:
             continue
-        sa, sb = set(ca), set(cb)
-        added = [ln for ln in cb if ln not in sa]
-        removed = [ln for ln in ca if ln not in sb]
+        added: list[bytes] = []
+        removed: list[bytes] = []
+        matcher = difflib.SequenceMatcher(None, ca, cb, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "insert":
+                added.extend(cb[j1:j2])
+            elif tag == "delete":
+                removed.extend(ca[i1:i2])
+            elif tag == "replace":
+                removed.extend(ca[i1:i2])
+                added.extend(cb[j1:j2])
         if added or removed:
             result.configs.append(ConfigDiff(device=name, added=added, removed=removed))
 

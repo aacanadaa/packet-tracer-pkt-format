@@ -15,6 +15,17 @@ on:
       # so a change to this workflow runs it, rather than silently waiting for
       # the next docs edit
       - ".github/workflows/docs.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "hooks/**"
+      - "overrides/**"
+      - "README.md"
+      - "README.zh-CN.md"
+      - "FORMAT.md"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -57,6 +68,7 @@ jobs:
 
       - name: Is Pages enabled?
         id: pages
+        if: github.event_name != 'pull_request'
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${{ github.token }}" \
@@ -69,14 +81,14 @@ jobs:
           fi
 
       - uses: actions/upload-pages-artifact@v3
-        if: steps.pages.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && steps.pages.outputs.enabled == 'true'
         with:
           path: site
 
   deploy:
     name: deploy
     needs: build
-    if: needs.build.outputs.pages == 'true'
+    if: github.event_name != 'pull_request' && needs.build.outputs.pages == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

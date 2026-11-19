@@ -308,8 +308,12 @@ class DeviceServices(PktNode):
     @property
     def aaa_users(self) -> list[AaaUser]:
         out: list[AaaUser] = []
-        for container in self._find_all_deep("USERS"):
-            out.extend(AaaUser.from_element(u) for u in container.find_all("USER"))
+        seen: set[int] = set()
+        for acs in self._find_all_deep("ACS_SERVER"):
+            for container in acs.iter_elements():
+                if container.tag == "USERS" and id(container) not in seen:
+                    seen.add(id(container))
+                    out.extend(AaaUser.from_element(u) for u in container.find_all("USER"))
         return out
 
     @property

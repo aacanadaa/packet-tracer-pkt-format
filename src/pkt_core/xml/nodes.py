@@ -13,7 +13,7 @@ the root tag) never materialises it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterator
+from typing import Final, Iterator
 
 from pkt_core.errors import FormatError
 
@@ -22,9 +22,26 @@ __all__ = [
     "XmlText",
     "XmlElement",
     "XmlDocument",
+    "escape_xml_text",
     "parse_xml_bytes",
     "parse_xml",
 ]
+
+_MAX_DEPTH: Final[int] = 512
+
+
+def escape_xml_text(text: str) -> str:
+    """Escape XML character data (``&``, ``<``, ``>``)."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _escape_attr_value(value: str, quote: bytes) -> bytes:
+    escaped = value.replace("&", "&amp;").replace("<", "&lt;")
+    if quote == b"'":
+        escaped = escaped.replace("'", "&apos;")
+    else:
+        escaped = escaped.replace('"', "&quot;")
+    return escaped.encode("utf-8")
 
 
 @dataclass(slots=True)
@@ -92,14 +109,15 @@ class XmlElement:
     def set(self, name: str, value: str) -> None:
         """Set an attribute, marking this element dirty so it re-serialises."""
         want = name.encode("utf-8")
-        new_val = value.encode("utf-8")
         for i, (raw_name, raw_value, _src) in enumerate(self.attrs):
             if raw_name == want:
                 quote = raw_value[0:1] if raw_value[:1] in (b'"', b"'") else b'"'
-                self.attrs[i] = (raw_name, quote + new_val + quote, b"")
+                escaped = _escape_attr_value(value, quote)
+                self.attrs[i] = (raw_name, quote + escaped + quote, b"")
                 self._dirty = True
                 return
-        self.attrs.append((want, b'"' + new_val + b'"', b""))
+        escaped = _escape_attr_value(value, b'"')
+        self.attrs.append((want, b'"' + escaped + b'"', b""))
         self._dirty = True
 
     def find(self, name: str) -> "XmlElement | None":
@@ -271,7 +289,6 @@ def _find_declaration_end(data: bytes, start: int) -> int:
     * ``<!-- ... -->`` ends at the first ``-->``
     * a DOCTYPE/PI ends at the first ``>`` outside a quoted value
     """
-    n = len(data)
     if data[start : start + 9] == b"<![CDATA[":
         end = data.find(b"]]>", start + 9)
         if end < 0:
@@ -358,11 +375,15 @@ def _parse_attrs(raw: bytes) -> list[tuple[bytes, bytes, bytes]]:
     return attrs
 
 
-def _parse_element(data: bytes, pos: int) -> tuple[XmlElement, int]:
+def _parse_element(data: bytes, pos: int, depth: int = 0) -> tuple[XmlElement, int]:
     """Parse one element starting at ``data[pos] == '<'``.
 
     Returns the element and the offset just past it.
     """
+    if depth >= _MAX_DEPTH:
+        raise FormatError(f"XML nesting depth exceeds maximum ({_MAX_DEPTH})")
+    if data[pos : pos + 2] == b"</":
+        raise FormatError(f"unexpected closing tag at offset {pos}")
     end = _find_tag_end(data, pos)
     raw_start_tag = data[pos : end + 1]
 
@@ -371,6 +392,8 @@ def _parse_element(data: bytes, pos: int) -> tuple[XmlElement, int]:
     while i < n and not data[i : i + 1].isspace() and data[i] not in (0x3E, 0x2F):
         i += 1
     name = data[pos + 1 : i]
+    if not name:
+        raise FormatError(f"empty tag name at offset {pos}")
 
     self_closing = (
         raw_start_tag.rstrip(b">").endswith(b"/")
@@ -390,8 +413,9 @@ def _parse_element(data: bytes, pos: int) -> tuple[XmlElement, int]:
         lt = data.find(b"<", cursor)
         if lt < 0:
             # Unterminated element: implicit close at end of input. Embedded
-            # HTML fragments do this; fidelity is unaffected because raw spans
-            # are preserved verbatim.
+            # HTML fragments do this; preserve trailing text and raw span.
+            if len(data) > text_start:
+                elem.children.append(XmlText(data=data[text_start:]))
             elem.raw = data[pos:]
             return elem, len(data)
         if lt > text_start:
@@ -415,7 +439,7 @@ def _parse_element(data: bytes, pos: int) -> tuple[XmlElement, int]:
             text_start = cursor
             continue
 
-        child, cursor = _parse_element(data, lt)
+        child, cursor = _parse_element(data, lt, depth + 1)
         elem.children.append(child)
         text_start = cursor
 
@@ -448,6 +472,10 @@ def parse_xml_bytes(data: bytes) -> XmlDocument:
         if data[lt : lt + 2] in (b"<?", b"<!"):
             pos = _find_declaration_end(data, lt) + 1
             continue
+        if data[lt : lt + 2] == b"</":
+            raise FormatError(f"unexpected leading closing tag at offset {lt}")
+        if _name_at(data, lt) == "?":
+            raise FormatError(f"empty root tag name at offset {lt}")
         return XmlDocument(data=data, root_start=lt)
 
 

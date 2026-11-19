@@ -49,7 +49,18 @@ def quncompress(payload: bytes) -> bytes:
         raise CompressionError(f"qCompress length prefix is implausible: {expected}")
 
     try:
-        data = zlib.decompress(payload[LENGTH_PREFIX_SIZE:])
+        decompressor = zlib.decompressobj()
+        data = decompressor.decompress(
+            payload[LENGTH_PREFIX_SIZE:], expected + 1
+        )
+        if decompressor.unconsumed_tail:
+            raise CompressionError(
+                f"qCompress payload exceeds declared length ({expected})"
+            )
+        if not decompressor.eof:
+            data += decompressor.flush()
+            if not decompressor.eof:
+                raise CompressionError("zlib stream is truncated")
     except zlib.error as exc:
         raise CompressionError(f"zlib inflate failed: {exc}") from exc
 
@@ -76,4 +87,7 @@ def qcompress(data: bytes, level: int = -1) -> bytes:
         canonical *encoder* and validates round-trips against the inflated form
         plus the AEAD tag, not against zlib's byte stream.
     """
-    return _HEADER.pack(len(data)) + zlib.compress(data, level)
+    try:
+        return _HEADER.pack(len(data)) + zlib.compress(data, level)
+    except (struct.error, zlib.error) as exc:
+        raise CompressionError(f"qCompress failed: {exc}") from exc
