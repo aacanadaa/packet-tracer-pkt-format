@@ -4,7 +4,7 @@
 
 本仓库记录了 Packet Tracer 的文件格式（覆盖 PT 4.1–5.3.2 旧版和 PT 5.3.3–9.0.1 现代容器），提供逐字节无损的 Python 库（`pkt_core`）、命令行工具（`pkt`）以及离线实验构建器，可以直接生成包含设备、模块、连线、IOS 配置、PC IP、实验说明、活动向导密码和评分树的 `.pkt`/`.pka` 文件。
 
-<img src="https://raw.githubusercontent.com/aacanadaa/large-scale-packet-tracer/main/docs/iruma/img/pt_full_topology.png" alt="由代码生成并在 Packet Tracer 9.0.1 中打开的 392 台设备企业级拓扑" width="100%">
+<img src="docs/img/pt_full_topology.png" alt="由代码生成并在 Packet Tracer 9.0.1 中打开的 392 台设备企业级拓扑" width="100%">
 
 *由代码生成并在 Packet Tracer 9.0.1 中打开（[IRUMA-AB 与 Y-AMLT 模型](https://github.com/aacanadaa/large-scale-packet-tracer)：386 / 392 台设备，752 条链路，28,073 行配置，共 12 层）。*
 
