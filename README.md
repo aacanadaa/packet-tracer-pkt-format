@@ -4,7 +4,7 @@ Read, write, and generate Cisco Packet Tracer `.pkt` labs and `.pka` activities 
 
 This repo documents the Packet Tracer file format (both legacy PT 4.1–5.3.2 and modern PT 5.3.3–9.0.1 containers) and provides a byte-exact Python library (`pkt_core`), CLI (`pkt`), and offline lab builder that writes devices, modules, cables, IOS configs, PC IPs, instructions, activity-wizard passwords, and scoring trees directly to `.pkt`/`.pka` files.
 
-<img src="docs/img/pt_full_topology.png" alt="392-device Packet Tracer enterprise topology generated from code and opened in Packet Tracer 9.0.1" width="100%">
+<img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="392-device Packet Tracer enterprise topology generated from code and opened in Packet Tracer 9.0.1" width="100%">
 
 *Generated from code and opened in Packet Tracer 9.0.1 ([IRUMA-AB and Y-AMLT models](https://github.com/aacanadaa/large-scale-packet-tracer): 386 and 392 devices, 752 links, 28,073 config lines across 12 tiers).*
 
