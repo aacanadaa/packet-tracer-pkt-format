@@ -28,7 +28,7 @@ def element(name: str, **attrs: str) -> XmlElement:
     The element is born dirty, so it serialises from its model rather than
     claiming a source span it never had.
     """
-    elem = XmlElement(name=name.encode("utf-8"))
+    elem = XmlElement(name=name.encode("utf-8"), _dirty=True)
     for key, value in attrs.items():
         elem.set(key, value)
     return elem

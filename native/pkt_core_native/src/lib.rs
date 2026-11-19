@@ -185,11 +185,15 @@ impl PyCipher {
                 data.len()
             )));
         }
-        let mut out = vec![0u8; data.len()];
-        for (src, dst) in data.chunks_exact(BLOCK_SIZE).zip(out.chunks_exact_mut(BLOCK_SIZE)) {
-            dst.copy_from_slice(&self.inner.encrypt_block(src));
-        }
-        Ok(PyBytes::new(py, &out))
+        PyBytes::new_with(py, data.len(), |out| {
+            for (src, dst) in data
+                .chunks_exact(BLOCK_SIZE)
+                .zip(out.chunks_exact_mut(BLOCK_SIZE))
+            {
+                dst.copy_from_slice(&self.inner.encrypt_block(src));
+            }
+            Ok(())
+        })
     }
 
     /// CAST-256 only: the inverse of :meth:`encrypt_block`.
@@ -243,6 +247,11 @@ impl PyCipher {
         index: usize,
         forward: bool,
     ) -> PyResult<(u32, u32, u32, u32)> {
+        if index >= 12 {
+            return Err(PyValueError::new_err(format!(
+                "quad-round index must be in 0..12, got {index}"
+            )));
+        }
         let input = [state.0, state.1, state.2, state.3];
         match self.inner.cast256_quad_round(input, index, forward) {
             Some(out) => Ok((out[0], out[1], out[2], out[3])),

@@ -35,10 +35,15 @@ def on_page_markdown(markdown: str, page: object, config: object, files: object)
         relative = target
         while relative.startswith("../"):
             relative = relative[3:]
-        # Only rewrite when the file is really in the repository; leave broken
-        # links alone so they still surface as build warnings.
-        if not (root / relative).exists():
+        path_part, sep, fragment = relative.partition("#")
+        clean_path = path_part.rstrip("/")
+        fs_target = root / clean_path
+        # Only rewrite when the target really exists in the repository; leave
+        # broken links alone so they still surface as build warnings.
+        if not clean_path or not fs_target.exists():
             return match.group(0)
-        return f"]({REPO}/blob/{BRANCH}/{relative})"
+        kind = "tree" if fs_target.is_dir() else "blob"
+        suffix = f"#{fragment}" if sep else ""
+        return f"]({REPO}/{kind}/{BRANCH}/{clean_path}{suffix})"
 
     return _PARENT_LINK.sub(rewrite, markdown)

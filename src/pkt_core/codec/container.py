@@ -27,7 +27,7 @@ from typing import Final, Iterable, Sequence
 
 from pkt_core.codec.qcompress import qcompress, quncompress
 from pkt_core.crypto.keys import FORMATS, FormatName, FormatSpec, get_format
-from pkt_core.crypto.primitives import eax_open, eax_seal
+from pkt_core.crypto.primitives import eax_open, eax_seal, eax_verify
 from pkt_core.crypto.stream import layer_a, layer_a_inverse, layer_b
 from pkt_core.errors import (
     FormatError,
@@ -48,6 +48,15 @@ __all__ = [
 ]
 
 DEFAULT_FORMAT: FormatName = "pkt"
+_MIN_LEGACY_SIZE: Final[int] = 6
+_MIN_MODERN_SIZE: Final[int] = 16
+
+
+def _resolve_format(name: FormatName) -> FormatSpec:
+    try:
+        return get_format(name)
+    except KeyError as exc:
+        raise FormatError(f"unknown container format: {name!r}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,15 +92,43 @@ def root_tag(xml: bytes) -> str:
     Parsing is unnecessary for this one fact and would be wasteful on the
     multi-megabyte documents real labs contain.
     """
-    head = xml[:400].decode("utf-8", "replace")
-    start = head.find("<")
-    end = head.find(">", start)
-    if start < 0 or end <= start:
-        return "?"
-    # split()[0] drops attributes; rstrip("/") drops the self-closing marker.
-    # XML names cannot contain '/', so this is unambiguous.
-    name = head[start + 1 : end].split()[0].rstrip("/")
-    return name or "?"
+    head = xml[:4096].decode("utf-8", "replace")
+    pos = 0
+    while True:
+        start = head.find("<", pos)
+        if start < 0:
+            return "?"
+        if head.startswith("<!--", start):
+            end = head.find("-->", start + 4)
+            if end < 0:
+                return "?"
+            pos = end + 3
+            continue
+        if head.startswith("<?", start):
+            end = head.find("?>", start + 2)
+            if end < 0:
+                return "?"
+            pos = end + 2
+            continue
+        if head.startswith("<!", start):
+            end = head.find(">", start + 2)
+            if end < 0:
+                return "?"
+            pos = end + 1
+            continue
+        end = head.find(">", start + 1)
+        if end < 0:
+            return "?"
+        inner = head[start + 1 : end].strip()
+        if not inner or inner.startswith("/"):
+            return "?"
+        parts = inner.split()
+        if not parts:
+            return "?"
+        # parts[0] drops attributes; rstrip("/") drops the self-closing marker.
+        # XML names cannot contain '/', so this is unambiguous.
+        name = parts[0].rstrip("/")
+        return name or "?"
 
 
 # --------------------------------------------------------------------------
@@ -107,24 +144,71 @@ _ZLIB_MAGICS: Final[tuple[bytes, ...]] = (
 
 
 def _looks_like_legacy(raw: bytes) -> bool:
-    """Cheap structural probe for the unencrypted PT 5.x family.
+    """Cheap O(1) structural probe for the unencrypted PT 5.x family.
 
     Family L is ``layer_b -> qCompress -> zlib``, so deobfuscating yields a
     4-byte big-endian uncompressed length followed by a zlib stream. Two checks
     gate it: a plausible length and a real zlib magic. The length is then
     verified exactly during inflate, which is what actually proves it.
     """
-    if len(raw) < 6:
+    n = len(raw)
+    if n < _MIN_LEGACY_SIZE:
         return False
-    payload = layer_b(raw)
-    declared = int.from_bytes(payload[:4], "big")
+    # Only the first 6 bytes of layer_b(raw) are needed: raw[i] ^ ((n - i) & 0xFF)
+    head = bytes(raw[i] ^ ((n - i) & 0xFF) for i in range(_MIN_LEGACY_SIZE))
+    declared = int.from_bytes(head[:4], "big")
     if declared == 0 or declared > _MAX_LEGACY_PLAUSIBLE:
         return False
-    return payload[4:6] in _ZLIB_MAGICS
+    return head[4:6] in _ZLIB_MAGICS
 
 
 #: Guard against absurd allocations from a corrupt probe.
 _MAX_LEGACY_PLAUSIBLE: Final[int] = 1 << 31
+
+
+def _detect_format(
+    raw: bytes,
+    candidates: Sequence[FormatName] | None = None,
+    *,
+    decoded_a: bytes | None = None,
+) -> FormatName:
+    if len(raw) < _MIN_LEGACY_SIZE:
+        raise TruncatedFileError(
+            f"file is {len(raw)} bytes; a container needs at least {_MIN_LEGACY_SIZE} bytes"
+        )
+    tried: list[str] = []
+    if len(raw) >= _MIN_MODERN_SIZE:
+        names: Iterable[FormatName] = (
+            candidates
+            if candidates is not None
+            else tuple(n for n, s in FORMATS.items() if not s.is_legacy)
+        )
+        ct = decoded_a if decoded_a is not None else layer_a(raw)
+        for name in names:
+            spec = _resolve_format(name)
+            if spec.is_legacy:
+                continue
+            try:
+                ok = eax_verify(spec.cipher, spec.key, spec.iv, ct)
+            except PacketTracerError:
+                tried.append(name)
+                continue
+            if ok:
+                return name
+            tried.append(name)
+
+    if candidates is None and _looks_like_legacy(raw):
+        return "legacy"
+
+    if len(raw) < _MIN_MODERN_SIZE:
+        raise TruncatedFileError(
+            f"file is {len(raw)} bytes; a modern container needs at least {_MIN_MODERN_SIZE} bytes"
+        )
+
+    raise FormatError(
+        f"no known format authenticated this file (tried: {', '.join(tried)}). "
+        "See docs/FORMAT_SPECIFICATION.md"
+    )
 
 
 def detect_format(
@@ -151,36 +235,7 @@ def detect_format(
         TruncatedFileError: if the buffer is too short to be a container.
         FormatError: if nothing matches — the file is corrupt or not a container.
     """
-    if len(raw) < 16:
-        raise TruncatedFileError(
-            f"file is {len(raw)} bytes; a container needs at least 16 bytes"
-        )
-    names: Iterable[FormatName] = (
-        candidates
-        if candidates is not None
-        else tuple(n for n, s in FORMATS.items() if not s.is_legacy)
-    )
-    tried: list[str] = []
-    for name in names:
-        spec = get_format(name)
-        if spec.is_legacy:
-            continue
-        try:
-            result = eax_open(spec.cipher, spec.key, spec.iv, layer_a(raw))
-        except PacketTracerError:
-            tried.append(name)
-            continue
-        if result.valid:
-            return name
-        tried.append(name)
-
-    if candidates is None and _looks_like_legacy(raw):
-        return "legacy"
-
-    raise FormatError(
-        f"no known format authenticated this file (tried: {', '.join(tried)}). "
-        "See docs/FORMAT_SPECIFICATION.md"
-    )
+    return _detect_format(raw, candidates)
 
 
 # --------------------------------------------------------------------------
@@ -211,12 +266,14 @@ def decode_bytes(
         FormatError: detection failed, or the payload is not a container.
         CompressionError: the qCompress layer would not inflate.
     """
-    if len(raw) < 16:
+    if len(raw) < _MIN_LEGACY_SIZE:
         raise TruncatedFileError(
-            f"file is {len(raw)} bytes; a container needs at least 16 bytes"
+            f"file is {len(raw)} bytes; a container needs at least {_MIN_LEGACY_SIZE} bytes"
         )
-    name = fmt if fmt is not None else detect_format(raw)
-    spec = get_format(name)
+
+    decoded_a: bytes | None = layer_a(raw) if len(raw) >= _MIN_MODERN_SIZE else None
+    name = fmt if fmt is not None else _detect_format(raw, decoded_a=decoded_a)
+    spec = _resolve_format(name)
 
     if spec.is_legacy:
         # Family L: no AEAD, no byte reversal. layer_b is an involution, so the
@@ -224,7 +281,12 @@ def decode_bytes(
         xml = quncompress(layer_b(raw))
         return Container(xml=xml, format_name=name, spec=spec, raw=raw)
 
-    result = eax_open(spec.cipher, spec.key, spec.iv, layer_a(raw))
+    if decoded_a is None:
+        raise TruncatedFileError(
+            f"file is {len(raw)} bytes; a modern container needs at least {_MIN_MODERN_SIZE} bytes"
+        )
+
+    result = eax_open(spec.cipher, spec.key, spec.iv, decoded_a)
     if verify_tag and not result.valid:
         raise IntegrityError(
             f"EAX tag mismatch for format {name!r} — the file is corrupt or is "
@@ -271,7 +333,7 @@ def encode_bytes(
         exactly. The AEAD is additionally deterministic because the key and IV
         are fixed per format, so identical XML always yields identical bytes.
     """
-    spec = get_format(fmt)
+    spec = _resolve_format(fmt)
     payload = layer_b(qcompress(xml, level))
     if spec.is_legacy:
         # Family L stops here: the deobfuscated qCompress payload *is* the file.

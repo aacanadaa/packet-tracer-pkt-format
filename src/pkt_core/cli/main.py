@@ -24,10 +24,10 @@ from pkt_core import (
     FORMATS,
     Container,
     PacketTracerError,
+    __version__,
     decode,
     decode_bytes,
     encode,
-    encode_bytes,
     root_tag,
 )
 from pkt_core.audit import TemplateLeftovers, validate_lab
@@ -60,27 +60,32 @@ def cmd_info(args: argparse.Namespace) -> int:
     raw = path.read_bytes()
     container = decode_bytes(raw, verify_tag=not args.no_verify)
 
-    print(f"file        : {path}")
-    print(f"size        : {len(raw):,} bytes")
-    print(f"format      : {container.format_name}")
-    print(f"cipher      : {container.spec.cipher}")
-    print(f"key byte    : 0x{container.spec.key_byte:02x}  (repeated x16)")
-    print(f"iv byte     : 0x{container.spec.iv_byte:02x}  (repeated x16)")
-    print(f"root tag    : {container.root_tag}")
-    print(f"kind        : {'scored activity (.pka)' if container.is_activity else 'network lab (.pkt)'}")
-    print(f"xml bytes   : {len(container.xml):,}")
     if args.json:
-        print(json.dumps({
+        payload: dict[str, object] = {
             "path": str(path),
             "size": len(raw),
             "format": container.format_name,
             "cipher": container.spec.cipher,
-            "key_byte": f"0x{container.spec.key_byte:02x}",
-            "iv_byte": f"0x{container.spec.iv_byte:02x}",
             "root_tag": container.root_tag,
             "is_activity": container.is_activity,
             "xml_bytes": len(container.xml),
-        }, indent=2))
+        }
+        if not container.spec.is_legacy:
+            payload["key_byte"] = f"0x{container.spec.key_byte:02x}"
+            payload["iv_byte"] = f"0x{container.spec.iv_byte:02x}"
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print(f"file        : {path}")
+    print(f"size        : {len(raw):,} bytes")
+    print(f"format      : {container.format_name}")
+    print(f"cipher      : {container.spec.cipher}")
+    if not container.spec.is_legacy:
+        print(f"key byte    : 0x{container.spec.key_byte:02x}  (repeated x16)")
+        print(f"iv byte     : 0x{container.spec.iv_byte:02x}  (repeated x16)")
+    print(f"root tag    : {container.root_tag}")
+    print(f"kind        : {'scored activity (.pka)' if container.is_activity else 'network lab (.pkt)'}")
+    print(f"xml bytes   : {len(container.xml):,}")
     return 0
 
 
@@ -133,6 +138,7 @@ def cmd_unpack(args: argparse.Namespace) -> int:
     written_cfgs = 0
     if args.configs:
         cfg_dir.mkdir(exist_ok=True)
+        used_cfg_names: set[str] = set()
         for dev in lab.devices:
             engine = dev.element.find("ENGINE")
             if engine is None:
@@ -143,8 +149,15 @@ def cmd_unpack(args: argparse.Namespace) -> int:
             lines = RunningConfig.from_element(node).lines
             if not lines:
                 continue
+            base = _safe_name(dev.name)
+            fname = base
+            suffix = 2
+            while fname in used_cfg_names:
+                fname = f"{base}_{suffix}"
+                suffix += 1
+            used_cfg_names.add(fname)
             # raw bytes on purpose: config text carries ^C banner delimiters
-            (cfg_dir / f"{_safe_name(dev.name)}.cfg").write_bytes(b"\n".join(lines) + b"\n")
+            (cfg_dir / f"{fname}.cfg").write_bytes(b"\n".join(lines) + b"\n")
             written_cfgs += 1
 
     # topology graph + inventory
@@ -196,6 +209,20 @@ def cmd_pack(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 # pkt diff
 # --------------------------------------------------------------------------
+def _emit_unified(args: argparse.Namespace, xml_a: bytes, xml_b: bytes) -> None:
+    text_a = _xml_text(xml_a)
+    text_b = _xml_text(xml_b)
+    sys.stdout.writelines(
+        difflib.unified_diff(
+            text_a,
+            text_b,
+            fromfile=str(args.file_a),
+            tofile=str(args.file_b),
+            n=args.context,
+        )
+    )
+
+
 def cmd_diff(args: argparse.Namespace) -> int:
     """Compare two containers semantically.
 
@@ -228,22 +255,16 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
     if diff.identical:
         print("\nNo semantic network differences (documents differ only in layout/metadata).")
-        return 0 if same_container else 1
+        if args.unified:
+            _emit_unified(args, a.xml, b.xml)
+        return 0
 
     print(f"\n{len(lines)} semantic difference(s):")
     for line in lines:
         print(f"  {line}")
 
     if args.unified:
-        text_a = _xml_text(a.xml)
-        text_b = _xml_text(b.xml)
-        sys.stdout.writelines(
-            difflib.unified_diff(
-                text_a, text_b,
-                fromfile=str(args.file_a), tofile=str(args.file_b),
-                n=args.context,
-            )
-        )
+        _emit_unified(args, a.xml, b.xml)
     return 1
 
 
@@ -301,12 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog=_PROG,
         description="Read, write and compare Cisco Packet Tracer .pkt/.pka containers.",
     )
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = ap.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("info", help="describe a container")
     p.add_argument("file", type=Path)
     p.add_argument("--no-verify", action="store_true", help="skip AEAD tag check")
-    p.add_argument("--json", action="store_true", help="also print machine-readable output")
+    p.add_argument("--json", action="store_true", help="print machine-readable JSON output")
     p.set_defaults(func=cmd_info)
 
     p = sub.add_parser(
@@ -380,7 +402,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except PacketTracerError as exc:
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
-    except OSError as exc:
+    except (OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

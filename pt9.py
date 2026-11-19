@@ -94,6 +94,8 @@ if _g is None:  # pragma: no cover - platform dependent
 _g.gcry_check_version.restype = ctypes.c_char_p
 _g.gcry_check_version(None)
 _g.gcry_cipher_open.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+_g.gcry_cipher_close.argtypes = [ctypes.c_void_p]
+_g.gcry_cipher_close.restype = None
 _g.gcry_cipher_setkey.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
 _g.gcry_cipher_encrypt.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
 
@@ -118,7 +120,43 @@ def cipher_available(name):
     if not cid:
         return False
     h = ctypes.c_void_p()
-    return _g.gcry_cipher_open(ctypes.byref(h), cid, _GCRY_ECB, 0) == 0
+    if _g.gcry_cipher_open(ctypes.byref(h), cid, _GCRY_ECB, 0) != 0:
+        return False
+    _g.gcry_cipher_close(h)
+    return True
+
+
+class _BlockCipherHandle:
+    """Callable ECB cipher handle with deterministic and GC-time cleanup."""
+
+    def __init__(self, handle):
+        self._h = handle
+
+    def __call__(self, block):
+        if self._h is None:
+            raise PacketTracerError("cipher handle is closed")
+        out = ctypes.create_string_buffer(BLOCK)
+        if _g.gcry_cipher_encrypt(self._h, out, BLOCK, block, BLOCK) != 0:
+            raise PacketTracerError("gcry_cipher_encrypt failed")
+        return out.raw
+
+    def close(self):
+        if self._h is not None:
+            h = self._h
+            self._h = None
+            _g.gcry_cipher_close(h)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def _block_cipher(name, key):
@@ -131,14 +169,9 @@ def _block_cipher(name, key):
     if _g.gcry_cipher_open(ctypes.byref(h), cid, _GCRY_ECB, 0) != 0:
         raise PacketTracerError("gcry_cipher_open failed")
     if _g.gcry_cipher_setkey(h, key, len(key)) != 0:
+        _g.gcry_cipher_close(h)
         raise PacketTracerError("gcry_cipher_setkey failed")
-
-    def enc(block):
-        out = ctypes.create_string_buffer(BLOCK)
-        if _g.gcry_cipher_encrypt(h, out, BLOCK, block, BLOCK) != 0:
-            raise PacketTracerError("gcry_cipher_encrypt failed")
-        return out.raw
-    return enc
+    return _BlockCipherHandle(h)
 
 
 def _xor(a, b):
@@ -188,25 +221,25 @@ def _ctr(E, nonce, data):
 # --------------------------------------------------------------------------
 def _eax_decrypt(cipher_name, key, iv, data):
     """data = ct || tag.  Returns (plaintext, computed_tag, stored_tag)."""
-    E = _block_cipher(cipher_name, key)
-    sk = _subkeys(E)
-    body, tag = data[:-16], data[-16:]
-    nonce = _cmac(E, b"\x00" * 16 + iv, sk)
-    pt = _ctr(E, nonce, body)
-    m1 = _cmac(E, b"\x00" * 15 + b"\x02" + body, sk)
-    m2 = _cmac(E, b"\x00" * 15 + b"\x01", sk)
-    return pt, _xor(_xor(nonce, m1), m2), tag
+    with _block_cipher(cipher_name, key) as E:
+        sk = _subkeys(E)
+        body, tag = data[:-16], data[-16:]
+        nonce = _cmac(E, b"\x00" * 16 + iv, sk)
+        pt = _ctr(E, nonce, body)
+        m1 = _cmac(E, b"\x00" * 15 + b"\x02" + body, sk)
+        m2 = _cmac(E, b"\x00" * 15 + b"\x01", sk)
+        return pt, _xor(_xor(nonce, m1), m2), tag
 
 
 def _eax_encrypt(cipher_name, key, iv, pt):
     """Returns ct || tag."""
-    E = _block_cipher(cipher_name, key)
-    sk = _subkeys(E)
-    nonce = _cmac(E, b"\x00" * 16 + iv, sk)
-    ct = _ctr(E, nonce, pt)
-    m1 = _cmac(E, b"\x00" * 15 + b"\x02" + ct, sk)
-    m2 = _cmac(E, b"\x00" * 15 + b"\x01", sk)
-    return ct + _xor(_xor(nonce, m1), m2)
+    with _block_cipher(cipher_name, key) as E:
+        sk = _subkeys(E)
+        nonce = _cmac(E, b"\x00" * 16 + iv, sk)
+        ct = _ctr(E, nonce, pt)
+        m1 = _cmac(E, b"\x00" * 15 + b"\x02" + ct, sk)
+        m2 = _cmac(E, b"\x00" * 15 + b"\x01", sk)
+        return ct + _xor(_xor(nonce, m1), m2)
 
 
 # --------------------------------------------------------------------------

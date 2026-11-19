@@ -203,17 +203,20 @@ class RecordFamily:
 
     ``name`` is the inventory's field name, ``container``/``record`` locate the
     records in the XML tree (``record="*"`` matches every element child).
+    ``scope`` optionally restricts matching to containers inside one of the
+    named ancestor tags (e.g. ``("ACS_SERVER",)``).
     """
 
     name: str
     container: str
     record: str
+    scope: tuple[str, ...] = ()
 
 
 #: The service families this module inventories and proves unique.
 SERVICE_FAMILIES: tuple[RecordFamily, ...] = (
     RecordFamily("aaa_clients", "ACS_CLIENTS", "CLIENT"),
-    RecordFamily("aaa_users", "USERS", "USER"),
+    RecordFamily("aaa_users", "USERS", "USER", scope=("ACS_SERVER",)),
     RecordFamily("dhcp_pools", "POOLS", "POOL"),
     RecordFamily("dns_records", "NAMESERVER-DATABASE", "RESOURCE-RECORD"),
     RecordFamily("ftp_accounts", "USER_ACCOUNT_MNGR", "ACCOUNT"),
@@ -237,14 +240,41 @@ def _record_identity(family: str, record: ElementView) -> Identity:
 
 def format_identity(identity: Identity) -> str:
     """Render an identity tuple for humans and finding messages."""
-    return " / ".join(part for part in identity) or "<empty>"
+    if not any(identity):
+        return "<empty>"
+    return " / ".join(part for part in identity)
+
+
+def _view_id(view: ElementView) -> int:
+    if isinstance(view, (XmlElementView, StdlibElementView)):
+        return id(view.el)
+    return id(view)
+
+
+def _scoped_containers(
+    engine: ElementView, container_tag: str, scope: tuple[str, ...] = ()
+) -> list[ElementView]:
+    if not scope:
+        return [c for c in engine.descendants() if c.tag == container_tag]
+    out: list[ElementView] = []
+    seen: set[int] = set()
+    roots: list[ElementView] = []
+    if engine.tag in scope:
+        roots.append(engine)
+    roots.extend(d for d in engine.descendants() if d.tag in scope)
+    for root in roots:
+        for container in root.descendants():
+            if container.tag == container_tag:
+                vid = _view_id(container)
+                if vid not in seen:
+                    seen.add(vid)
+                    out.append(container)
+    return out
 
 
 def _service_records(engine: ElementView, family: RecordFamily) -> list[ElementView]:
     out: list[ElementView] = []
-    for container in engine.descendants():
-        if container.tag != family.container:
-            continue
+    for container in _scoped_containers(engine, family.container, family.scope):
         if family.record == "*":
             out.extend(container.element_children())
         else:
@@ -252,21 +282,22 @@ def _service_records(engine: ElementView, family: RecordFamily) -> list[ElementV
     return out
 
 
+def _model_of_engine(engine: ElementView) -> str:
+    type_view = engine.child("TYPE")
+    if type_view is not None and isinstance(type_view, (XmlElementView, StdlibElementView)):
+        return type_view.el.get("model") or ""  # attribute access is tree-specific
+    return ""
+
+
 def _engine_views(el: XmlElement | StdlibElement | ElementView) -> list[tuple[str, ElementView]]:
     """Resolve a DEVICE/ENGINE element to ``(model, engine view)`` pairs."""
     view = as_view(el)
     if view.tag == "ENGINE":
-        return [("", view)]  # model unknown at this level; pass model= explicitly
+        return [(_model_of_engine(view), view)]
     engine = view.child("ENGINE")
     if engine is None:
         return []
-    model = ""
-    type_view = engine.child("TYPE")
-    if type_view is not None:
-        raw = type_view if isinstance(type_view, (XmlElementView, StdlibElementView)) else None
-        if raw is not None:
-            model = raw.el.get("model") or ""  # attribute access is tree-specific
-    return [(model, engine)]
+    return [(_model_of_engine(engine), engine)]
 
 
 # --------------------------------------------------------------------------- #
@@ -276,14 +307,16 @@ def _engine_views(el: XmlElement | StdlibElement | ElementView) -> list[tuple[st
 class LeftoverRule:
     """One record list that harvested templates carry and generators do not author.
 
-    ``container`` is matched against every element under ``<ENGINE>``;
-    ``record`` names the records inside it (``"*"`` removes all element
-    children).  ``label`` names the rule in :class:`SanitizeReport`.
+    ``container`` is matched against every element under ``<ENGINE>`` (or under
+    ``scope`` ancestors when set); ``record`` names the records inside it
+    (``"*"`` removes all element children).  ``label`` names the rule in
+    :class:`SanitizeReport`.
     """
 
     container: str
     record: str
     label: str
+    scope: tuple[str, ...] = ()
 
 
 #: Service record lists stripped from instantiated templates.
@@ -295,9 +328,14 @@ class LeftoverRule:
 #: residue.
 DEFAULT_LEFTOVER_RULES: tuple[LeftoverRule, ...] = (
     LeftoverRule("ACS_CLIENTS", "CLIENT", "aaa-clients"),
-    LeftoverRule("USERS", "USER", "aaa-users"),
+    LeftoverRule("USERS", "USER", "aaa-users", scope=("ACS_SERVER",)),
     LeftoverRule("POOLS", "POOL", "dhcp-pools"),
-    LeftoverRule("ASSOCIATED_PORTS", "ASSOCIATED_PORT", "dhcp-port-bindings"),
+    LeftoverRule(
+        "ASSOCIATED_PORTS",
+        "ASSOCIATED_PORT",
+        "dhcp-port-bindings",
+        scope=("DHCP_SERVERS", "DHCP_SERVER"),
+    ),
     LeftoverRule("NAMESERVER-DATABASE", "RESOURCE-RECORD", "dns-records"),
     LeftoverRule("USER_ACCOUNT_MNGR", "ACCOUNT", "ftp-accounts"),
     LeftoverRule("DHCP_POOL_LEASES", "*", "dhcp-leases"),
@@ -579,7 +617,7 @@ class ServiceInventory:
     def summary(self) -> str:
         """Multi-line honest report — the text a design document should quote."""
         dns = self.dns_records
-        servers = len(self.dns_records_by_device) or 1
+        servers = len(self.dns_records_by_device)
         lines = [
             self.device_names.describe(),
             self.end_device_ips.describe(),
@@ -677,26 +715,25 @@ def inventory(
 
     devices = lab.devices
     for dev in devices:
-        names.append((dev.name,))
-        ips.extend((ip,) for ip in _port_ips(dev))
         engine = dev.engine
         if engine is None:
             continue
+        names.append((dev.name,))
+        ips.extend((ip,) for ip in _port_ips(dev))
         model = dev.model
         view = XmlElementView(engine)
         for family in SERVICE_FAMILIES:
             for rec in _service_records(view, family):
                 families[family.name].append((model, _record_identity(family.name, rec)))
-        if engine.find("DNS_SERVER") is not None:
-            zone = tuple(
-                zone_identity(_record_identity("dns_records", rec))
-                for rec in _service_records(view, _FAMILY_BY_NAME["dns_records"])
-            )
-            # Only devices that actually hold records count as DNS servers:
-            # templates ship <DNS_SERVER><ENABLED>1</ENABLED> on appliances that
-            # serve no zone at all, and those empty shells are not replicas.
-            if zone:
-                dns_by_device.append((dev.name, zone))
+        zone = tuple(
+            zone_identity(_record_identity("dns_records", rec))
+            for rec in _service_records(view, _FAMILY_BY_NAME["dns_records"])
+        )
+        # Only devices that actually hold records count as DNS servers:
+        # templates ship <DNS_SERVER><ENABLED>1</ENABLED> on appliances that
+        # serve no zone at all, and those empty shells are not replicas.
+        if zone:
+            dns_by_device.append((dev.name, zone))
 
     def dedup(family: str, pairs: Iterable[tuple[str, Identity]]) -> DedupCount:
         entries = tuple(ident for _, ident in pairs)
@@ -750,9 +787,7 @@ def _strip_by_rules(engine: ElementView, rules: Iterable[LeftoverRule]) -> dict[
     removed: dict[str, int] = {}
     for rule in rules:
         n = 0
-        for container in list(engine.descendants()):
-            if container.tag != rule.container:
-                continue
+        for container in _scoped_containers(engine, rule.container, rule.scope):
             victims = (
                 container.element_children()
                 if rule.record == "*"
@@ -796,14 +831,15 @@ def _strip_leftover_records(
                 n += 1
         if n:
             removed[family.name.replace("_", "-")] = n
-    # a DHCP port binding whose pools are all gone is itself a leftover shell
-    for binding in list(engine.descendants()):
-        if binding.tag != "ASSOCIATED_PORT":
-            continue
-        if not _service_records(binding, _FAMILY_BY_NAME["dhcp_pools"]):
-            parent = _parent_of(engine, binding)
-            if parent is not None:
-                parent.remove(binding)
+    # a DHCPv4 port binding whose pools are all gone is itself a leftover shell
+    for assoc_ports in _scoped_containers(
+        engine, "ASSOCIATED_PORTS", ("DHCP_SERVERS", "DHCP_SERVER")
+    ):
+        for binding in [
+            c for c in assoc_ports.element_children() if c.tag == "ASSOCIATED_PORT"
+        ]:
+            if not _service_records(binding, _FAMILY_BY_NAME["dhcp_pools"]):
+                assoc_ports.remove(binding)
                 removed["dhcp-port-bindings"] = removed.get("dhcp-port-bindings", 0) + 1
     # runtime state is never authored at generation time
     for rule in _RUNTIME_RULES:
@@ -832,7 +868,9 @@ def sanitize_engine(
     right leftover fingerprints and may be omitted when ``leftovers`` is None.
     """
     view = as_view(engine)
-    if view.tag != "ENGINE":
+    if view.tag == "ENGINE":
+        model = model or _model_of_engine(view)
+    else:
         resolved = _engine_views(view)
         if not resolved:
             return SanitizeReport()

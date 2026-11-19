@@ -47,6 +47,15 @@ class Cipher:
         """CAST-256 only: the ``(kr, km)`` quad-round keys of RFC 2612."""
         ...
 
+    def cast256_quad_round(
+        self,
+        state: tuple[int, int, int, int],
+        index: int,
+        forward: bool = True,
+    ) -> tuple[int, int, int, int]:
+        """CAST-256 only: one quad-round ``Q_i`` / ``QBAR_i`` of RFC 2612."""
+        ...
+
 def available_ciphers() -> list[str]:
     """Registry names this accelerator implements."""
     ...

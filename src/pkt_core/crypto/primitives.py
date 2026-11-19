@@ -21,6 +21,7 @@ constant for a given format — see :mod:`pkt_core.crypto.keys`.
 
 from __future__ import annotations
 
+import hmac
 from typing import TYPE_CHECKING, Callable, Final, NamedTuple
 
 from pkt_core.errors import UnsupportedCipherError
@@ -36,6 +37,7 @@ __all__ = [
     "ctr_crypt",
     "eax_seal",
     "eax_open",
+    "eax_verify",
     "EaxResult",
 ]
 
@@ -49,7 +51,10 @@ _FULL_MASK: Final[int] = (1 << 128) - 1
 
 
 def _xor(a: bytes, b: bytes) -> bytes:
-    return bytes(x ^ y for x, y in zip(a, b))
+    n = min(len(a), len(b))
+    if n == 0:
+        return b""
+    return (int.from_bytes(a[:n], "big") ^ int.from_bytes(b[:n], "big")).to_bytes(n, "big")
 
 
 # --------------------------------------------------------------------------
@@ -112,8 +117,26 @@ def ctr_crypt(encrypt_block: EncryptBlock, nonce: bytes, data: bytes) -> bytes:
     incremented by one per block; it is not a little-endian byte counter and it
     does not wrap within a partial block.
     """
-    out = bytearray()
+    if len(nonce) != BLOCK_SIZE:
+        raise ValueError(f"CTR nonce must be {BLOCK_SIZE} bytes, got {len(nonce)}")
+    if not data:
+        return b""
+
     counter = int.from_bytes(nonce, "big")
+    owner = getattr(encrypt_block, "__self__", None)
+    encrypt_blocks: Callable[[bytes], bytes] | None = (
+        getattr(owner, "encrypt_blocks", None) if owner is not None else None
+    )
+    if callable(encrypt_blocks):
+        n_blocks = (len(data) + BLOCK_SIZE - 1) // BLOCK_SIZE
+        counters = b"".join(
+            ((counter + i) & _FULL_MASK).to_bytes(BLOCK_SIZE, "big")
+            for i in range(n_blocks)
+        )
+        keystream = encrypt_blocks(counters)
+        return _xor(data, keystream[: len(data)])
+
+    out = bytearray()
     for i in range(0, len(data), BLOCK_SIZE):
         ks = encrypt_block((counter & _FULL_MASK).to_bytes(BLOCK_SIZE, "big"))
         blk = data[i : i + BLOCK_SIZE]
@@ -139,7 +162,7 @@ class EaxResult(NamedTuple):
     @property
     def valid(self) -> bool:
         """Whether the AEAD tag verified. This is the format-detection oracle."""
-        return self.computed_tag == self.stored_tag
+        return hmac.compare_digest(self.computed_tag, self.stored_tag)
 
 
 def _build_encrypt_block(cipher_name: str, key: bytes) -> EncryptBlock:
@@ -230,5 +253,16 @@ def eax_open(cipher_name: str, key: bytes, iv: bytes, data: bytes) -> EaxResult:
 
 
 def eax_verify(cipher_name: str, key: bytes, iv: bytes, data: bytes) -> bool:
-    """Return whether ``data`` authenticates under this key/IV. Cheap rejection."""
-    return eax_open(cipher_name, key, iv, data).valid
+    """Return whether ``data`` authenticates under this key/IV (CMAC-only)."""
+    if len(data) < BLOCK_SIZE:
+        from pkt_core.errors import TruncatedFileError
+
+        raise TruncatedFileError(
+            f"EAX input is {len(data)} bytes; need at least {BLOCK_SIZE} for the tag"
+        )
+    encrypt_block = _build_encrypt_block(cipher_name, key)
+    subkeys = cmac_subkeys(encrypt_block)
+    body, stored = data[:-BLOCK_SIZE], data[-BLOCK_SIZE:]
+    nonce = _nonce_of(encrypt_block, iv, subkeys)
+    computed = _tag_of(encrypt_block, nonce, body, subkeys)
+    return hmac.compare_digest(computed, stored)

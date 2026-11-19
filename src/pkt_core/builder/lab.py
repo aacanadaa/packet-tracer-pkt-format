@@ -335,8 +335,11 @@ def load_tier_map(path: "str | os.PathLike[str] | None") -> int:
             rows.append((tier, list(pats)))
     else:
         raise ValueError(f"tier map {path}: expected an object")
-    _EXTRA_TIER_RULES = [(t, re.compile("|".join(f"(?:{p})" for p in pats)))
-                         for t, pats in rows]
+    _EXTRA_TIER_RULES = [
+        (t, re.compile("|".join(f"(?:{p})" for p in pats)))
+        for t, pats in rows
+        if pats
+    ]
     return len(_EXTRA_TIER_RULES)
 
 
@@ -624,7 +627,8 @@ class Lab:
         elif isinstance(seed, bytes):
             xml = seed
         else:
-            raw = open(seed, "rb").read()
+            with open(seed, "rb") as fh:
+                raw = fh.read()
             xml = decode_bytes(raw, "pkt").xml if str(seed).lower().endswith(".pkt") else raw
         if models is None:
             models, bundled_modules = load_device_templates()
@@ -633,8 +637,8 @@ class Lab:
         self.base = ET.fromstring(xml)
         self.net = self.base.find("NETWORK")
         self.devs = self.net.find("DEVICES")
-        self.models = models
-        self.modules = modules or {}
+        self.models = dict(models)
+        self.modules = dict(modules or {})
         self._pw = self.base.find("PHYSICALWORKSPACE")
         self._wsroot = self._pw.find("NODE") if self._pw is not None else None
 
@@ -679,6 +683,8 @@ class Lab:
         return rack
 
     def _add_leaf(self, name, leaf, x=0):
+        from pkt_core.xml.nodes import escape_xml_text
+
         ch = self._rack.find("CHILDREN")
         if ch is None:
             ch = ET.SubElement(self._rack, "CHILDREN")
@@ -692,7 +698,9 @@ class Lab:
             "<BG_TILED>false</BG_TILED><CUSTOM_IMAGE_WIDTH>-1</CUSTOM_IMAGE_WIDTH>"
             "<CUSTOM_IMAGE_HEIGHT>-1</CUSTOM_IMAGE_HEIGHT><SCALE_FACTOR>1</SCALE_FACTOR>"
             "<UUID_STR>{{{u}}}</UUID_STR><SLOT>0</SLOT><SUB_SLOT>0</SUB_SLOT>"
-            "<ICP_CSX>0</ICP_CSX><ICP_CSY>0</ICP_CSY></NODE>".format(x=x, name=name, u=leaf))
+            "<ICP_CSX>0</ICP_CSX><ICP_CSY>0</ICP_CSY></NODE>".format(
+                x=x, name=escape_xml_text(name), u=leaf
+            ))
         ch.append(el)
 
     def _make_cpur(self, x, leaf):
@@ -761,7 +769,17 @@ class Lab:
     def add_device(self, model: str, name: str, x: int = 100, y: int = 100,
                    power: bool = True, ios_config: Sequence[str] | None = None,
                    pc_ip: Sequence[str] | None = None, install: str | None = None,
-                   bay: int = 0, on_name_conflict: str = "raise") -> str:
+                   bay: int = 0, on_name_conflict: str = "raise",
+                   *, slot: int | None = None) -> str:
+        from pkt_core.xml.nodes import escape_xml_text
+
+        # Validate inputs BEFORE mutating counters or physical-workspace leaves
+        if model not in self.models:
+            raise KeyError(model)
+        if pc_ip is not None and len(pc_ip) != 3:
+            raise ValueError(
+                f"pc_ip must be a 3-sequence (ip, mask, gateway), got {len(pc_ip)} item(s)"
+            )
         # unique-name check first: a collision must not leave half-added state
         name = self._resolve_name(name, on_name_conflict)
         i = self._n
@@ -775,12 +793,19 @@ class Lab:
         phys = "%s,%s,{%s}" % (self._PP, self._CID, leaf)
 
         blk = self.models[model].decode("utf-8", "replace")
+        escaped_name = escape_xml_text(name)
         s = re.sub(r"save-ref-id:\d+", lambda m: "save-ref-id:%d" % (9_900_000_000_000_000_000 + i), blk)
-        s = re.sub(r"<NAME[^>]*>.*?</NAME>", '<NAME translate="true">%s</NAME>' % name, s, count=1, flags=re.S)
+        s = re.sub(
+            r"<NAME[^>]*>.*?</NAME>",
+            lambda _m: '<NAME translate="true">%s</NAME>' % escaped_name,
+            s,
+            count=1,
+            flags=re.S,
+        )
         s = re.sub(r"(<WORKSPACE>\s*<LOGICAL>\s*<X>)[^<]*(</X>\s*<Y>)[^<]*(</Y>)",
                    lambda m: m.group(1) + str(x) + m.group(2) + str(y) + m.group(3), s, count=1, flags=re.S)
         # replace PHYSICAL and rebuild PHYSICAL_CPUR
-        s = re.sub(r"<PHYSICAL[^>]*>[^<]*</PHYSICAL>", "<PHYSICAL>%s</PHYSICAL>" % phys, s)
+        s = re.sub(r"<PHYSICAL[^>]*>[^<]*</PHYSICAL>", lambda _m: "<PHYSICAL>%s</PHYSICAL>" % phys, s)
         s = re.sub(r"<PHYSICAL_CPUR>.*?</PHYSICAL_CPUR>", "", s, flags=re.S)
         cpur = self._make_cpur(px, leaf)
         s = re.sub(r"(<PHYSICAL>[^<]*</PHYSICAL>)", lambda m: m.group(1) + cpur, s, count=1)
@@ -835,7 +860,7 @@ class Lab:
         self.devs.append(el)
         self._els[sid] = el
         if install:
-            self.install_module(sid, install, bay)
+            self.install_module(sid, install, bay, slot=slot)
         return sid
 
     def install_module(self, dev_id, module_model, bay=None, *, slot=None):
@@ -924,16 +949,31 @@ class Lab:
         el = self._els.get(dev_id)
         if el is None:
             return
-        ports = [p for p in el.iter("PORT") if p.findtext("TYPE") == "eSmartSerial"]
-        if not ports:
-            return
-        try:
-            idx = int(port_name.split("/")[-1])
-        except ValueError:
-            idx = 0
-        if idx >= len(ports):
-            idx = 0
-        p = ports[idx]
+        eng = el.find("ENGINE")
+        p = None
+        m3 = re.search(r"(\d+)/(\d+)/(\d+)$", port_name)
+        if m3 and eng is not None:
+            slot_idx = int(m3.group(2))
+            port_idx = int(m3.group(3))
+            bays = [sl for sl in eng.iter("SLOT") if sl.findtext("TYPE") == "eInterfaceCard"]
+            if 0 <= slot_idx < len(bays):
+                bay_ports = [
+                    pt for pt in bays[slot_idx].iter("PORT")
+                    if pt.findtext("TYPE") == "eSmartSerial"
+                ]
+                if 0 <= port_idx < len(bay_ports):
+                    p = bay_ports[port_idx]
+        if p is None:
+            ports = [pt for pt in el.iter("PORT") if pt.findtext("TYPE") == "eSmartSerial"]
+            if not ports:
+                return
+            try:
+                idx = int(port_name.split("/")[-1])
+            except ValueError:
+                idx = 0
+            if idx < 0 or idx >= len(ports):
+                idx = 0
+            p = ports[idx]
         for tag, val in (("CLOCKRATE", str(rate)), ("CLOCKRATEFLAG", "true"), ("POWER", "true")):
             e = p.find(tag)
             if e is None:
@@ -945,28 +985,34 @@ class Lab:
         'serial' (eSerial; pass dce=<device id of the DCE end>).  For a serial
         link the DCE interface is given a `clock rate` automatically (without it
         the line stays down / the cable renders red)."""
-        L = ET.SubElement(self.net.find("LINKS"), "LINK")
-        ET.SubElement(L, "TYPE").text = "eCopper" if kind == "copper" else ("eSerial" if kind == "serial" else None)
-        cab = ET.SubElement(L, "CABLE")
-        if kind == "copper":
-            fields = [("LENGTH", "1"), ("FUNCTIONAL", "true"), ("FROM", a_id), ("PORT", a_port),
-                      ("TO", b_id), ("PORT", b_port), ("FROM_DEVICE_MEM_ADDR", "1"), ("TO_DEVICE_MEM_ADDR", "2"),
-                      ("FROM_PORT_MEM_ADDR", "3"), ("TO_PORT_MEM_ADDR", "4"),
-                      ("GEO_VIEW_COLOR", "#6ba72e"), ("IS_MANAGED_IN_RACK_VIEW", "false"),
-                      ("TYPE", "eStraightThrough")]
-        elif kind == "serial":
+        if kind not in ("copper", "serial"):
+            raise ValueError("kind must be 'copper' or 'serial'")
+        if kind == "serial":
+            if dce is not None and dce not in (a_id, b_id):
+                raise ValueError(
+                    f"dce must be one of the link endpoints ({a_id!r} or {b_id!r}), got {dce!r}"
+                )
             dce = dce or a_id
             dport = dce_port or (a_port if dce == a_id else b_port)
             self._set_serial_port(a_id, a_port, clock if dce == a_id else 0)
             self._set_serial_port(b_id, b_port, clock if dce == b_id else 0)
             self._append_config(dce, ["interface %s" % dport, " clock rate %d" % clock])
+            link_type = "eSerial"
             fields = [("LENGTH", "1"), ("FUNCTIONAL", "true"), ("FROM", a_id), ("PORT", a_port),
                       ("TO", b_id), ("PORT", b_port), ("FROM_DEVICE_MEM_ADDR", "1"), ("TO_DEVICE_MEM_ADDR", "2"),
                       ("FROM_PORT_MEM_ADDR", "3"), ("TO_PORT_MEM_ADDR", "4"),
                       ("GEO_VIEW_COLOR", "#1e59a5"), ("IS_MANAGED_IN_RACK_VIEW", "false"),
                       ("DCEDEV", dce), ("DCEPORT", dport)]
         else:
-            raise ValueError("kind must be 'copper' or 'serial'")
+            link_type = "eCopper"
+            fields = [("LENGTH", "1"), ("FUNCTIONAL", "true"), ("FROM", a_id), ("PORT", a_port),
+                      ("TO", b_id), ("PORT", b_port), ("FROM_DEVICE_MEM_ADDR", "1"), ("TO_DEVICE_MEM_ADDR", "2"),
+                      ("FROM_PORT_MEM_ADDR", "3"), ("TO_PORT_MEM_ADDR", "4"),
+                      ("GEO_VIEW_COLOR", "#6ba72e"), ("IS_MANAGED_IN_RACK_VIEW", "false"),
+                      ("TYPE", "eStraightThrough")]
+        L = ET.SubElement(self.net.find("LINKS"), "LINK")
+        ET.SubElement(L, "TYPE").text = link_type
+        cab = ET.SubElement(L, "CABLE")
         for t, v in fields:
             ET.SubElement(cab, t).text = v
 
