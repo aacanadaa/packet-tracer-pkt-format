@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: commit-history
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: commit-history
+  cancel-in-progress: true
+
+jobs:
+  update-chart:
+    name: update-chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate commit history SVGs
+        run: python tools/generate_commit_history.py /tmp/commit-history-out
+
+      - name: Publish SVGs to commit-history-assets branch
+        run: |
+          cd /tmp/commit-history-out
+          git init -b commit-history-assets
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add commit-history-light.svg commit-history-dark.svg
+          git commit -m "chore: update commit history chart (${GITHUB_SHA::7})"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin commit-history-assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

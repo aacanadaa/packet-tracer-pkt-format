@@ -263,11 +263,14 @@ def render_svg(
 
 
 def main() -> None:
-    IMG_DIR.mkdir(parents=True, exist_ok=True)
+    import sys
+
+    out_dir = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else IMG_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
     dates, series = _collect_commit_series()
     font_css = _extract_xkcd_font_css()
-    light_path = IMG_DIR / "commit-history-light.svg"
-    dark_path = IMG_DIR / "commit-history-dark.svg"
+    light_path = out_dir / "commit-history-light.svg"
+    dark_path = out_dir / "commit-history-dark.svg"
     light_path.write_text(render_svg(dates, series, dark=False, font_css=font_css), encoding="utf-8")
     dark_path.write_text(render_svg(dates, series, dark=True, font_css=font_css), encoding="utf-8")
     print(f"Wrote {light_path} and {dark_path} ({len(dates)} days, series={list(series)})")
@@ -275,3 +278,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

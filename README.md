@@ -235,11 +235,12 @@ Full format specs, schema docs, and verification reports are published at [aacan
 
 <a href="https://github.com/aacanadaa/packet-tracer-pkt-format/graphs/contributors">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/img/commit-history-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="docs/img/commit-history-light.svg" />
-    <img alt="Repository and contributor commit history chart" src="docs/img/commit-history-light.svg" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/commit-history-assets/commit-history-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/commit-history-assets/commit-history-light.svg" />
+    <img alt="Repository and contributor commit history chart" src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/commit-history-assets/commit-history-light.svg" />
   </picture>
 </a>
+
 
 
 
