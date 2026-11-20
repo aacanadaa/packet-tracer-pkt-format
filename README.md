@@ -231,9 +231,14 @@ Full format specs, schema docs, and verification reports are published at [aacan
   </picture>
 </a>
 
-## Contributors
+## Commit history
 
-<a href="https://github.com/aacanadaa/packet-tracer-pkt-format/graphs/contributors">
-  <img alt="Contributors" src="https://contrib.rocks/image?repo=aacanadaa/packet-tracer-pkt-format" />
+<a href="https://commit-history.com/aacanadaa">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://commit-history.com/embed/aacanadaa?theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://commit-history.com/embed/aacanadaa" />
+    <img alt="Commit history chart" src="https://commit-history.com/embed/aacanadaa" />
+  </picture>
 </a>
+
 
