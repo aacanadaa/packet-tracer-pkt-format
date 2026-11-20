@@ -9,6 +9,33 @@ repository are revisions of the agent skill document, not of the library. Librar
 releases are tagged `sdk-v*` and published to PyPI as
 [`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Byte-exact round-trip on Pythons linked against zlib-ng.** Re-encoding an
+  unchanged file recompressed its XML with `zlib.compress(xml, -1)`. zlib-ng
+  (used by e.g. the official CPython 3.14 Windows build) deflates to a different,
+  valid stream, so `encode(decode(f)) != f` there: `sample_lab.pkt`'s 81,454-byte
+  stream came back as 81,433 bytes. `decode_bytes()` now keeps the original
+  qCompress payload on `Container.payload`, and `encode_bytes()`/`encode()`
+  take an optional `original=` container whose payload is reused while the XML
+  is byte-identical. Edited XML is compressed as before; on classic zlib the
+  output for edited files is unchanged.
+
+### Added
+
+- `pkt pack --original FILE`: reuse `FILE`'s compressed stream when the XML is
+  unchanged, so `pkt unpack` followed by `pkt pack --original` reproduces the
+  source file exactly. `--format` defaults to the original's flavour when given.
+- CI runs the gated test matrix on `windows-latest` with Python 3.14 (zlib-ng).
+
+### Changed
+
+- Docs no longer claim fresh compression is byte-exact everywhere: unchanged
+  files always round-trip exactly; freshly compressed output is byte-identical to
+  Packet Tracer's only with classic zlib.
+
 ## [0.4.3] — 2026-11-19
 
 ### Security & Robustness

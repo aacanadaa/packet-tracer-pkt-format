@@ -2,7 +2,7 @@
 
 离线读取、修改和生成 Cisco Packet Tracer `.pkt` 实验文件与 `.pka` 评分活动，不需要安装 Packet Tracer。
 
-本仓库记录了 Packet Tracer 的文件格式（覆盖 PT 4.1–5.3.2 旧版和 PT 5.3.3–9.0.1 现代容器），提供逐字节无损的 Python 库（`pkt_core`）、命令行工具（`pkt`）以及离线实验构建器，可以直接生成包含设备、模块、连线、IOS 配置、PC IP、实验说明、活动向导密码和评分树的 `.pkt`/`.pka` 文件。
+本仓库记录了 Packet Tracer 的文件格式（覆盖 PT 4.1–5.3.2 旧版和 PT 5.3.3–9.0.1 现代容器），提供可将未修改文件逐字节还原的 Python 库（`pkt_core`）、命令行工具（`pkt`）以及离线实验构建器，可以直接生成包含设备、模块、连线、IOS 配置、PC IP、实验说明、活动向导密码和评分树的 `.pkt`/`.pka` 文件。
 
 <img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="由代码生成并在 Packet Tracer 9.0.1 中打开的 392 台设备企业级拓扑" width="100%">
 
@@ -104,7 +104,9 @@ container = decode("lab.pkt")          # 通过 EAX 标签或旧版探测自动�
 print(container.root_tag)              # 'PACKETTRACER5'
 print(container.is_activity)           # False (.pka -> PACKETTRACER5_ACTIVITY)
 
-rebuilt = encode_bytes(container.xml, container.format_name)
+# 传入 original= 时，若 XML 未修改则复用原文件的压缩流，在任何 Python 上都能逐字节还原 lab.pkt。
+# 重新压缩的输出仅在经典 zlib 下与 Packet Tracer 逐字节一致（zlib-ng 输出不同但同样有效）。
+rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 ```
 
 | 模块 | 说明 |

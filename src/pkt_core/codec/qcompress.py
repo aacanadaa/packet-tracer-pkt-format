@@ -83,9 +83,10 @@ def qcompress(data: bytes, level: int = -1) -> bytes:
 
     Note:
         zlib's output is not required to be bit-stable across zlib builds or
-        versions, so byte-exact container round-tripping treats this as the
-        canonical *encoder* and validates round-trips against the inflated form
-        plus the AEAD tag, not against zlib's byte stream.
+        versions: classic zlib matches Packet Tracer byte for byte, zlib-ng does
+        not. To reproduce an unchanged file exactly, reuse its original payload
+        (``Container.payload``, via ``encode_bytes(..., original=container)``)
+        instead of calling this.
     """
     try:
         return _HEADER.pack(len(data)) + zlib.compress(data, level)
