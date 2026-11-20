@@ -17,13 +17,21 @@ concurrency:
 jobs:
   # The contract: tests pass, types are strict, coverage holds at 90%.
   test:
-    name: test (py${{ matrix.python }})
-    runs-on: ubuntu-latest
+    # The ubuntu job names are kept as they were so required checks still match.
+    name: test (py${{ matrix.python }}${{ matrix.os == 'windows-latest' && ', windows' || '' }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # 3.10 is the documented floor; 3.14 is what we develop against.
+        os: [ubuntu-latest]
         python: ["3.10", "3.14"]
+        include:
+          # The official CPython 3.14 Windows build links zlib-ng, whose deflate
+          # output differs from classic zlib's. Ubuntu-only CI is what let the
+          # byte-exact round-trip test break there unnoticed.
+          - os: windows-latest
+            python: "3.14"
     steps:
       - uses: actions/checkout@v4
 
@@ -58,8 +66,8 @@ jobs:
 
   # Windows is a supported target for the Python package, and it was the one that
   # went untested: Ubuntu-only CI is what let an import-time libgcrypt dependency
-  # break collection for the whole suite on Windows. Coverage is measured by the
-  # Linux jobs, so this one runs the suite without the coverage gate.
+  # break collection for the whole suite on Windows. This job covers 3.13 without
+  # the coverage gate; the 3.14 Windows job in the test matrix above enforces it.
   windows:
     name: test (windows)
     runs-on: windows-latest
