@@ -21,7 +21,7 @@ both necessary and conclusive.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Iterable, Sequence
 
@@ -68,12 +68,18 @@ class Container:
         format_name: Which flavour produced it (``"pkt"``, ``"pta"``, …).
         spec: The key schedule that was used.
         raw: The original file bytes, when known (``None`` for synthesised ones).
+        payload: The original Qt ``qCompress`` payload (4-byte length prefix +
+            zlib stream) exactly as it was stored in the file, when known.
+            Passing this container as ``original=`` to :func:`encode_bytes`
+            reuses it while the XML is unchanged, so an untouched file
+            re-encodes to its original bytes on any zlib build.
     """
 
     xml: bytes
     format_name: FormatName
     spec: FormatSpec
     raw: bytes | None = None
+    payload: bytes | None = field(default=None, repr=False)
 
     @property
     def root_tag(self) -> str:
@@ -278,8 +284,9 @@ def decode_bytes(
     if spec.is_legacy:
         # Family L: no AEAD, no byte reversal. layer_b is an involution, so the
         # same call that deobfuscates on read obfuscates on write.
-        xml = quncompress(layer_b(raw))
-        return Container(xml=xml, format_name=name, spec=spec, raw=raw)
+        payload = layer_b(raw)
+        xml = quncompress(payload)
+        return Container(xml=xml, format_name=name, spec=spec, raw=raw, payload=payload)
 
     if decoded_a is None:
         raise TruncatedFileError(
@@ -292,8 +299,9 @@ def decode_bytes(
             f"EAX tag mismatch for format {name!r} — the file is corrupt or is "
             "not this flavour"
         )
-    xml = quncompress(layer_b(result.plaintext))
-    return Container(xml=xml, format_name=name, spec=spec, raw=raw)
+    payload = layer_b(result.plaintext)
+    xml = quncompress(payload)
+    return Container(xml=xml, format_name=name, spec=spec, raw=raw, payload=payload)
 
 
 def decode(
@@ -315,26 +323,45 @@ def encode_bytes(
     fmt: FormatName = DEFAULT_FORMAT,
     *,
     level: int = -1,
+    original: Container | None = None,
 ) -> bytes:
     """Build a container from XML bytes.
 
     Args:
         xml: The UTF-8 XML document.
         fmt: Which flavour to seal it as.
-        level: zlib compression level (``-1`` is Qt's default).
+        level: zlib compression level (``-1`` is Qt's default). Ignored when
+            the original compressed payload is reused.
+        original: The :class:`Container` this XML was decoded from, if any.
+            When ``xml`` is byte-identical to ``original.xml``, the original
+            qCompress payload is reused instead of recompressing. Otherwise
+            ``xml`` is compressed as normal.
 
     Returns:
         Complete file bytes.
 
     Note:
-        Both families are **byte-exact** round-trippers: ``encode(decode(f)) == f``
-        holds on all 1,014 corpus files, through ``zlib.compress``. Python's
-        ``zlib.compress(x, -1)`` reproduces Packet Tracer's qCompress stream
-        exactly. The AEAD is additionally deterministic because the key and IV
-        are fixed per format, so identical XML always yields identical bytes.
+        Re-encoding an **unchanged** document with ``original=`` always
+        reproduces the file exactly: ``encode_bytes(c.xml, c.format_name,
+        original=c) == f`` for ``c = decode_bytes(f)``, whatever zlib Python is
+        linked against.
+
+        Freshly compressed output (no ``original``, or edited XML) depends on
+        the zlib build. With classic zlib, ``zlib.compress(x, -1)`` matches
+        Packet Tracer's qCompress stream byte for byte, so even
+        ``encode_bytes(c.xml, c.format_name) == f`` holds across the corpus.
+        Other deflate implementations such as zlib-ng (used by some CPython
+        builds, e.g. 3.14 on Windows) emit a different but equally valid
+        stream: the file decodes to the same XML and Packet Tracer opens it,
+        but the bytes differ. The AEAD is deterministic (fixed key and IV per
+        format), so on any one zlib build identical XML yields identical bytes.
     """
     spec = _resolve_format(fmt)
-    payload = layer_b(qcompress(xml, level))
+    if original is not None and original.payload is not None and original.xml == xml:
+        compressed = original.payload
+    else:
+        compressed = qcompress(xml, level)
+    payload = layer_b(compressed)
     if spec.is_legacy:
         # Family L stops here: the deobfuscated qCompress payload *is* the file.
         return payload
@@ -348,6 +375,10 @@ def encode(
     fmt: FormatName = DEFAULT_FORMAT,
     *,
     level: int = -1,
+    original: Container | None = None,
 ) -> None:
-    """Build a container from XML bytes and write it to ``path``."""
-    Path(path).write_bytes(encode_bytes(xml, fmt, level=level))
+    """Build a container from XML bytes and write it to ``path``.
+
+    See :func:`encode_bytes` for ``original``.
+    """
+    Path(path).write_bytes(encode_bytes(xml, fmt, level=level, original=original))
