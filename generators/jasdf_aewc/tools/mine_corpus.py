@@ -52,9 +52,8 @@ for f in files:
         devs = {}
         for d in net.iter('DEVICE'):
             sid = d.findtext('ENGINE/SAVE_REF_ID')
-            t = d.findtext('ENGINE/TYPE') or ''
-            mm = re.search(r'model="([^"]*)"', t)
-            mdl = mm.group(1) if mm else t
+            te = d.find('ENGINE/TYPE')
+            mdl = ((te.get('model') if te is not None else '') or (te.text if te is not None else '') or '').strip()
             if sid: devs[sid] = mdl
             # capture real RUNNINGCONFIG per model
             rc = d.find('ENGINE/RUNNINGCONFIG')
@@ -73,8 +72,10 @@ for f in files:
         for L in net.iter('LINK'):
             c = L.find('CABLE')
             if c is None: continue
-            fa, pa = c.findtext('FROM'), c.findtext('PORT')
-            fb, pb = c.findtext('TO'), c.findtext('PORT')
+            fa, fb = c.findtext('FROM'), c.findtext('TO')
+            c_ports = [p.text or '' for p in c.findall('PORT')]
+            pa = c_ports[0] if len(c_ports) > 0 else ''
+            pb = c_ports[1] if len(c_ports) > 1 else ''
             if fa in devs and pa: portmap[devs[fa]][pa.strip()] += 1
             if fb in devs and pb: portmap[devs[fb]][pb.strip()] += 1
 

@@ -523,3 +523,271 @@ def test_rewrite_repo_links_hook_anchors_and_dirs() -> None:
     assert "/blob/main/README.md#install)" in out
     assert "/tree/main/tools)" in out
     assert "(../nope.txt)" in out
+
+
+def test_new_audit_fixes_and_builder_coverage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import xml.etree.ElementTree as ET
+    from pkt_core.builder.lab import (
+        Layout,
+        harvest_models,
+        harvest_modules,
+        kind_for_model,
+        label_box,
+        load_tier_map,
+        normalise_device_power,
+        parse_devices,
+        tier_for_name,
+    )
+    from pkt_core.resources import load_device_templates
+
+    # 1. All 78 bundled module templates parse cleanly as <SLOT> elements
+    models, modules = load_device_templates()
+    assert len(modules) >= 78
+    for mod_name, mod_xml in modules.items():
+        parsed = ET.fromstring(mod_xml)
+        assert parsed.tag == "SLOT", mod_name
+
+    # 2. Export & diff resolve SAVE_REF_ID endpoints on builder-authored labs
+    blab = BuilderLab()
+    blab.prune_seed_devices()
+    r1 = blab.add_device(
+        "2911",
+        "R1",
+        ios_config=["interface Serial0/0/0", " ip address 10.0.0.1 255.255.255.252", "end"],
+        install="HWIC-2T",
+    )
+    r2 = blab.add_device("2911", "R2", install="HWIC-2T")
+    blab.link(r1, "Serial0/0/0", r2, "Serial0/0/0", kind="serial", dce=r1, clock=128000)
+
+    # Check DTE CLOCKRATEFLAG is "false" and DCE CLOCKRATEFLAG is "true", no duplicate interface block,
+    # and dirty template IP 10.0.0.1 on HWIC-2T Port 0 was cleared!
+    r1_el = blab._els[r1]
+    r2_el = blab._els[r2]
+    r1_ser = [p for p in r1_el.iter("PORT") if p.findtext("TYPE") == "eSmartSerial"][0]
+    r2_ser = [p for p in r2_el.iter("PORT") if p.findtext("TYPE") == "eSmartSerial"][0]
+    assert r1_ser.findtext("CLOCKRATE") == "128000"
+    assert r1_ser.findtext("CLOCKRATEFLAG") == "true"
+    assert r2_ser.findtext("CLOCKRATE") == "0"
+    assert r2_ser.findtext("CLOCKRATEFLAG") == "false"
+    assert (r1_ser.findtext("IP") or "") == ""
+    assert (r2_ser.findtext("IP") or "") == ""
+    rc_lines = [e.text or "" for e in r1_el.findall("ENGINE/RUNNINGCONFIG/LINE")]
+    assert rc_lines.count("interface Serial0/0/0") == 1
+    assert " clock rate 128000" in rc_lines
+
+    # set_os, set_config_register, set_wireless
+    blab.set_os(r1, image="c2900-universalk9-mz.SPA.151-4.M4.bin", file_name="c2900.bin")
+    blab.set_os(r1, image="c2900-new.bin")
+    blab.set_config_register(r1, "0x2142")
+    blab.set_config_register(r1, 0x2102)
+    assert r1_el.findtext("ENGINE/OS_IMAGE") == "c2900-new.bin"
+    assert r1_el.findtext("ENGINE/OS_FILE_NAME") == "c2900.bin"
+    assert r1_el.findtext("ENGINE/CONFIG_REGISTER") == str(0x2102)
+
+    ap_id = blab.add_device("AccessPoint-PT", "AP1")
+    w_count = blab.set_wireless(
+        ap_id,
+        ssid="CORP-WIFI",
+        auth_type=1,
+        encrypt_type=2,
+        password="secret",
+        userid="admin",
+        channel=6,
+        radio_band=1,
+    )
+    assert w_count >= 1
+    assert blab._els[ap_id].findtext(".//SSID") == "CORP-WIFI"
+    assert blab._els[ap_id].findtext(".//PORT[TYPE='eAccessPointWirelessG']/CHANNEL") == "6"
+    lt_id = blab.add_device("Laptop-PT", "LT1")
+    assert (
+        blab.set_wireless(
+            lt_id,
+            ssid="CORP-WIFI",
+            password="secret",
+            userid="admin",
+            channel=6,
+        )
+        >= 1
+    )
+
+    # 2-part serial port name (e.g. Router-PT with eSerial ports) and fallback serial port name
+    rpt1 = blab.add_device("Router-PT", "RPT1")
+    rpt2 = blab.add_device("Router-PT", "RPT2")
+    blab.link(rpt1, "Serial2/0", rpt2, "Serial0", kind="serial", dce=rpt1, clock=64000)
+
+    out_pkt = tmp_path / "built.pkt"
+    blab.save(out_pkt)
+    built_xml = decode_bytes(out_pkt.read_bytes()).xml
+    mlab = Lab.from_bytes(built_xml)
+
+    dot = to_graphviz(mlab)
+    assert "R1" in dot and "R2" in dot
+    assert "Serial0/0/0" in dot
+    assert "->" in dot
+
+    nb = json.loads(to_netbox(mlab))
+    assert any(c["a"]["device"] == "R1" and c["b"]["device"] == "R2" for c in nb["cables"])
+    clab = to_containerlab(mlab)
+    assert '"R1:Serial0/0/0"' in clab and '"R2:Serial0/0/0"' in clab
+
+    # 3. harvest_models & harvest_modules on tmp_path .pkt
+    harvest_dir = tmp_path / "saves"
+    harvest_dir.mkdir()
+    (harvest_dir / "sample.pkt").write_bytes(out_pkt.read_bytes())
+    (harvest_dir / "corrupt.pkt").write_bytes(b"not a pkt")
+    h_models = harvest_models(harvest_dir, wanted={"2911"})
+    assert "2911" in h_models
+    h_modules = harvest_modules(harvest_dir, wanted={"HWIC-2T"})
+    assert "HWIC-2T" in h_modules
+    assert ET.fromstring(h_modules["HWIC-2T"]).tag == "SLOT"
+
+    # normalise_device_power when <POWER> is absent or false
+    blk_absent = b"<DEVICE><ENGINE><NAME>X</NAME></ENGINE></DEVICE>"
+    norm_blk, was_off = normalise_device_power(blk_absent)
+    assert was_off is True and b"<POWER>true</POWER>" in norm_blk
+
+    # 4. Layout anchor, reserve, forget, page wrapping, and bounds errors
+    with pytest.raises(ValueError, match="canvas bounds"):
+        Layout(x_min=500, x_max=100)
+    lay = Layout()
+    assert label_box("router", "R1", "2911")[0] > 0
+    for m_str, expected_kind in (
+        ("Power Distribution Device", "pdd"),
+        ("Sniffer", "sniffer"),
+        ("Server-PT", "server"),
+        ("AccessPoint-PT", "access-point"),
+        ("Laptop-PT", "laptop"),
+        ("PC-PT", "pc"),
+        ("5505", "firewall"),
+        ("2960-24TT", "switch"),
+        ("3560-24PS", "multilayer-switch"),
+        ("2911", "router"),
+        ("Temperature Sensor", "iot"),
+        ("Unknown-Widget-XYZ", "default"),
+    ):
+        assert kind_for_model(m_str) == expected_kind
+
+    res_p = lay.reserve("RES-1", "2911", 4000, 200)
+    assert res_p.page == 1
+    lay.forget("RES-1")
+    assert len(lay.placements) == 0
+
+    lay.anchor("g1", 4100, 200)
+    p1 = lay.place("G1-R1", "2911", group="g1")
+    assert p1.page == 1
+    p2 = lay.place("G1-R2", "2911", group="g1")
+    assert p2.page == 1 and p2.x > p1.x
+
+    small_lay = Layout(x_min=60, y_min=60, x_max=400, y_max=300)
+    with pytest.raises(ValueError, match="does not fit"):
+        small_lay.place("A" * 80, "2911")
+    for idx in range(6):
+        small_lay.place(f"D{idx}", "2911", group="wrap")
+
+    # parse_devices edge cases
+    assert parse_devices(b"<PACKETTRACER5/>") == []
+    edge_xml = (
+        b"<PACKETTRACER5><NETWORK><DEVICES>"
+        b"<DEVICE/>"
+        b"<DEVICE><ENGINE><NAME>NoWS</NAME></ENGINE></DEVICE>"
+        b"<DEVICE><ENGINE><NAME>NoXY</NAME></ENGINE><WORKSPACE><LOGICAL/></WORKSPACE></DEVICE>"
+        b"<DEVICE><ENGINE><TYPE model='2911'>Router</TYPE><NAME>OK</NAME></ENGINE>"
+        b"<WORKSPACE><LOGICAL><X>10</X><Y>20</Y></LOGICAL></WORKSPACE></DEVICE>"
+        b"</DEVICES></NETWORK></PACKETTRACER5>"
+    )
+    parsed_devs = parse_devices(edge_xml)
+    assert len(parsed_devs) == 1 and parsed_devs[0].name == "OK"
+
+    # load_tier_map rules list format & invalid format
+    tm_rules = tmp_path / "tier_rules.json"
+    tm_rules.write_text(
+        json.dumps({"rules": [{"tier": "edge", "patterns": ["^EDGE-"]}]}),
+        encoding="utf-8",
+    )
+    try:
+        assert load_tier_map(tm_rules) == 1
+        assert tier_for_name("EDGE-01") == "edge"
+        assert tier_for_name("E767-01-RTR") == "airborne"
+    finally:
+        load_tier_map(None)
+
+    tm_bad = tmp_path / "tier_bad.json"
+    tm_bad.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(ValueError, match="expected an object"):
+        load_tier_map(tm_bad)
+
+    # Lab.__init__ with bytes, .pkt path, and invalid seed
+    blab_from_pkt = BuilderLab(out_pkt)
+    assert "R1" in blab_from_pkt.device_names()
+    with pytest.raises(ValueError, match="NETWORK"):
+        BuilderLab(b"<PACKETTRACER5/>")
+    with pytest.raises(ValueError, match="physical workspace"):
+        BuilderLab(b"<PACKETTRACER5><NETWORK><DEVICES/></NETWORK></PACKETTRACER5>")
+
+    # 5. detect_format with candidates=["legacy"], quncompress trailing bytes,
+    # XML entity unescaping, PIs with quotes/>, self-closing <TAG a="1" / >, PktNode.__hash__
+    leg_bytes = encode_bytes(b"<PACKETTRACER5/>", fmt="legacy")
+    assert detect_format(leg_bytes, candidates=["pkt", "legacy"]) == "legacy"
+    assert detect_format(leg_bytes, candidates=["legacy"]) == "legacy"
+    with pytest.raises(FormatError):
+        detect_format(b"12345678", candidates=["legacy"])
+
+    with pytest.raises(CompressionError, match="trailing"):
+        quncompress(qcompress(b"<ROOT/>") + b"trailing_garbage")
+
+    sc_doc = parse_xml_bytes(b"<TAG a='1' / >")
+    assert sc_doc.root.tag == "TAG"
+    assert sc_doc.root.get("a") == "1"
+    assert "/" not in [k.decode() for k, _, _ in sc_doc.root.attrs]
+
+    pi_doc = parse_xml_bytes(b"<?pi don't > stop ?><TAG a='1'><br><CHILD/></TAG>")
+    assert pi_doc.root.tag == "TAG"
+    br_el = pi_doc.root.find("br")
+    assert br_el is not None
+    br_el.set("class", "clear")
+    assert b'<br class="clear">' in pi_doc.to_bytes()
+
+    # Entity round-trip on set/get and set_name/name
+    pi_doc.root.set("label", 'a & b < c "d"')
+    assert pi_doc.root.get("label") == 'a & b < c "d"'
+    dev0 = mlab.devices[0]
+    dev0.set_name("R&D <Lab>")
+    assert dev0.name == "R&D <Lab>"
+    dev0.set_name(dev0.name)
+    assert dev0.name == "R&D <Lab>"
+    assert len({dev0, mlab.devices[0]}) == 1
+
+    # Missing <ENGINE> on <DEVICE> does not crash Device properties, diff_labs, or export
+    bare_lab = Lab.from_bytes(
+        b"<PACKETTRACER5><NETWORK><DEVICES><DEVICE/></DEVICES><LINKS/></NETWORK></PACKETTRACER5>"
+    )
+    bare_dev = bare_lab.devices[0]
+    assert bare_dev.name == ""
+    assert bare_dev.kind == ""
+    assert bare_dev.model == ""
+    assert bare_dev.custom_model == ""
+    assert bare_dev.power_state == "absent"
+    assert bare_dev.powered is False
+    assert bare_dev.description == ""
+    assert bare_dev.modules == []
+    assert bare_dev.ports == []
+    assert diff_labs(bare_lab, bare_lab).identical is True
+    assert "digraph" in to_graphviz(bare_lab)
+
+    # CLI unpack on legacy file omits key_byte/iv_byte, and diff on same XML in different formats
+    leg_out = tmp_path / "leg_unpacked"
+    assert cli_main(["unpack", str(legacy_pkt := tmp_path / "leg2.pkt"), "-o", str(leg_out)]) == 2
+    capsys.readouterr()
+    legacy_pkt.write_bytes(leg_bytes)
+    assert cli_main(["unpack", str(legacy_pkt), "-o", str(leg_out)]) == 0
+    capsys.readouterr()
+    leg_meta = json.loads((leg_out / "leg2.container.json").read_text(encoding="utf-8"))
+    assert "key_byte" not in leg_meta and "iv_byte" not in leg_meta
+
+    mod_pkt = tmp_path / "mod2.pkt"
+    mod_pkt.write_bytes(encode_bytes(b"<PACKETTRACER5/>", fmt="pkt"))
+    assert cli_main(["diff", str(legacy_pkt), str(mod_pkt)]) == 0
+    assert "outer format" in capsys.readouterr().out
+

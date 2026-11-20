@@ -58,9 +58,14 @@ def quncompress(payload: bytes) -> bytes:
                 f"qCompress payload exceeds declared length ({expected})"
             )
         if not decompressor.eof:
-            data += decompressor.flush()
+            remaining = max(1, expected + 1 - len(data))
+            data += decompressor.flush(remaining)
             if not decompressor.eof:
                 raise CompressionError("zlib stream is truncated")
+        if decompressor.unused_data:
+            raise CompressionError(
+                f"zlib stream has {len(decompressor.unused_data)} trailing byte(s)"
+            )
     except zlib.error as exc:
         raise CompressionError(f"zlib inflate failed: {exc}") from exc
 

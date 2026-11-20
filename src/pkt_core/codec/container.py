@@ -178,20 +178,19 @@ def _detect_format(
     *,
     decoded_a: bytes | None = None,
 ) -> FormatName:
+    if candidates is not None:
+        resolved_candidates = [(name, _resolve_format(name)) for name in candidates]
+    else:
+        resolved_candidates = list(FORMATS.items())
+
     if len(raw) < _MIN_LEGACY_SIZE:
         raise TruncatedFileError(
             f"file is {len(raw)} bytes; a container needs at least {_MIN_LEGACY_SIZE} bytes"
         )
     tried: list[str] = []
     if len(raw) >= _MIN_MODERN_SIZE:
-        names: Iterable[FormatName] = (
-            candidates
-            if candidates is not None
-            else tuple(n for n, s in FORMATS.items() if not s.is_legacy)
-        )
         ct = decoded_a if decoded_a is not None else layer_a(raw)
-        for name in names:
-            spec = _resolve_format(name)
+        for name, spec in resolved_candidates:
             if spec.is_legacy:
                 continue
             try:
@@ -203,10 +202,18 @@ def _detect_format(
                 return name
             tried.append(name)
 
-    if candidates is None and _looks_like_legacy(raw):
-        return "legacy"
+    allow_legacy = any(spec.is_legacy for _, spec in resolved_candidates)
+    if allow_legacy:
+        if _looks_like_legacy(raw):
+            return "legacy"
+        if candidates is not None:
+            tried.append("legacy")
 
-    if len(raw) < _MIN_MODERN_SIZE:
+    if len(raw) < _MIN_MODERN_SIZE and not allow_legacy:
+        raise TruncatedFileError(
+            f"file is {len(raw)} bytes; a modern container needs at least {_MIN_MODERN_SIZE} bytes"
+        )
+    if len(raw) < _MIN_MODERN_SIZE and candidates is None:
         raise TruncatedFileError(
             f"file is {len(raw)} bytes; a modern container needs at least {_MIN_MODERN_SIZE} bytes"
         )

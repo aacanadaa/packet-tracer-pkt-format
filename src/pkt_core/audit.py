@@ -802,7 +802,7 @@ def _strip_by_rules(engine: ElementView, rules: Iterable[LeftoverRule]) -> dict[
 
 
 def _parent_of(root: ElementView, target: ElementView) -> ElementView | None:
-    for el in root.descendants():
+    for el in (root, *root.descendants()):
         for child in el.element_children():
             if child is target or (
                 isinstance(child, (XmlElementView, StdlibElementView))

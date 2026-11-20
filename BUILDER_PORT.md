@@ -22,31 +22,26 @@ whoever picks up the rest.
 `Lab()` and `load_templates()` with no arguments use the bundled data, so the
 five-line example in the README works with no checkout and no `sys.path` edits.
 
-## Deferred, on purpose
+## Status of deferred items
 
-**1. Full annotations for `pkt_core.builder`.** The module is excluded from
-`mypy --strict` in `pyproject.toml`, with the reason inline. Its public signatures
-are typed; the bodies are `ElementTree` surgery where `find()` returns `Optional`
-everywhere, and annotating 1,000 lines in the same change as a behaviour-preserving
-port would have risked the byte-exactness for no user-visible gain.
+**1. Full annotations for `pkt_core.builder` — DONE.** Every method and helper in
+`src/pkt_core/builder/lab.py` is now annotated and checked under `mypy --strict`,
+and the `pkt_core.builder.*` override in `pyproject.toml` has been removed.
 
-Annotating it properly is a standalone change: expect asserts or a non-`Optional`
-lookup helper at each `find()`, and no behavioural change. Remove the override in
-the same commit.
+**2. Scored-activity authoring.** `tools/activity.py` and `tools/scoring.py`
+remain in `tools/` (now updated to use `pkt_core.codec.container` and proper XML
+escaping instead of the root `pt9` script), so building a `.pka` still runs from
+a checkout.
 
-**2. Scored-activity authoring.** `tools/activity.py` (151 lines) and
-`tools/scoring.py` (264 lines) are not ported, so building a `.pka` still needs a
-checkout. Same treatment: move, replace the `pt9` calls, shim the old path.
-
-**3. Coverage.** The ported module sits at **67%** and is `omit`ted from the
-aggregate so it cannot dilute the 90% gate that applies to codec and models. It is
-exercised by `test_lab_api`, `test_layout` and `test_power`, just not densely.
+**3. Coverage — DONE.** `pkt_core.builder` now sits above **90%** branch-aware
+coverage and is folded into the package-wide 90% coverage gate in
+`pyproject.toml` (`omit` removed).
 
 **4. Wheel size and a duplicated asset.** The two bundled assets are 1.9 MB raw and
-the wheel is now roughly 820 KB. Note that `network_seed.xml` and
-`device_templates.json` now exist **twice** — in `tools/` for the authoring scripts
-and in `src/pkt_core/data/` for the package. Consolidating on one copy (and having
-`tools/` read from the package) is the right follow-up; do it before the two drift.
+the wheel is roughly 820 KB. Note that `network_seed.xml` and
+`device_templates.json` currently exist in both `tools/` and `src/pkt_core/data/`.
+Consolidating on one copy (and having `tools/` read from the package) is the
+right follow-up so the two cannot drift.
 
 A related trap: `.gitignore` excludes `*.xml` with narrow exceptions, and the first
 CI run on this branch failed because the seed document was silently not committed.
@@ -74,10 +69,3 @@ if either asset goes missing again.
 4. **Coverage is branch-aware.** Adding a module without tests shows up as a
    percentage drop, not as an error, until it trips `fail_under`. Check the builder
    row explicitly after touching it.
-
-## Next
-
-1. Annotate `pkt_core.builder` and drop the override.
-2. Port `activity.py` and `scoring.py`, then a `pkt new` CLI command so the first
-   run is one command instead of a Python snippet.
-3. Raise builder coverage and fold it back into the aggregate.

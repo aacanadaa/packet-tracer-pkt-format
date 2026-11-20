@@ -121,8 +121,10 @@ def _port_fields(dev: Device) -> dict[str, str]:
 def _endpoint_resolver(lab: Lab) -> dict[str, str]:
     names: dict[str, str] = {}
     for dev in lab.devices:
+        if dev.save_ref_id:
+            names[dev.save_ref_id] = dev.name
         if dev.dev_addr:
-            names[dev.dev_addr] = dev.name
+            names.setdefault(dev.dev_addr, dev.name)
     for link in lab.links:
         cable = link.cable
         if cable is None:
@@ -140,8 +142,18 @@ def _link_identity(link: Link, resolve: dict[str, str]) -> str:
     cable = link.cable
     if cable is None:
         return f"(no endpoints:{link.type})" if link.type else "(no endpoints)"
-    a_dev = resolve.get(cable.from_device_addr) or resolve.get(cable.from_ref) or cable.from_ref
-    b_dev = resolve.get(cable.to_device_addr) or resolve.get(cable.to_ref) or cable.to_ref
+    a_dev = (
+        resolve.get(cable.from_ref)
+        or resolve.get(cable.from_device_addr)
+        or cable.from_ref
+        or cable.from_device_addr
+    )
+    b_dev = (
+        resolve.get(cable.to_ref)
+        or resolve.get(cable.to_device_addr)
+        or cable.to_ref
+        or cable.to_device_addr
+    )
     ports = cable.ports
     a_port = ports[0] if len(ports) > 0 else ""
     b_port = ports[1] if len(ports) > 1 else ""
@@ -161,6 +173,18 @@ def _index_links(lab: Lab) -> dict[str, tuple[str, str]]:
         counts[base] = idx
         ident = base if idx == 1 else f"{base} #{idx}"
         indexed[ident] = (link.type, link.cable_type)
+    return indexed
+
+
+def _index_devices(lab: Lab) -> dict[str, Device]:
+    counts: dict[str, int] = {}
+    indexed: dict[str, Device] = {}
+    for dev in lab.devices:
+        base = dev.name or "<unnamed>"
+        idx = counts.get(base, 0) + 1
+        counts[base] = idx
+        ident = base if idx == 1 else f"{base} #{idx}"
+        indexed[ident] = dev
     return indexed
 
 
@@ -188,8 +212,8 @@ def diff_labs(a: Lab, b: Lab) -> LabDiff:
     if a.is_activity != b.is_activity:
         result.meta_changes["is_activity"] = (str(a.is_activity), str(b.is_activity))
 
-    a_devs = {d.name: d for d in a.devices}
-    b_devs = {d.name: d for d in b.devices}
+    a_devs = _index_devices(a)
+    b_devs = _index_devices(b)
 
     for name in sorted(set(a_devs) | set(b_devs)):
         da, db = a_devs.get(name), b_devs.get(name)

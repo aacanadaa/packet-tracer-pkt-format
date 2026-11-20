@@ -208,6 +208,15 @@ class _Libgcrypt:
             raise UnsupportedCipherError("gcry_cipher_encrypt failed")
         return out.raw
 
+    def encrypt_blocks(self, handle: ctypes.c_void_p, data: bytes) -> bytes:
+        n = len(data)
+        if n == 0:
+            return b""
+        out = ctypes.create_string_buffer(n)
+        if self._lib.gcry_cipher_encrypt(handle, out, n, data, n) != 0:
+            raise UnsupportedCipherError("gcry_cipher_encrypt failed")
+        return out.raw
+
 
 _LIB_PROBED: bool = False
 _LIB: _Libgcrypt | None = None
@@ -272,6 +281,15 @@ class LibgcryptCipher:
         if self._handle is None or self._lib is None:
             raise ValueError("cipher handle is closed")
         return self._lib.encrypt(self._handle, block)
+
+    def encrypt_blocks(self, data: bytes) -> bytes:
+        if len(data) % BLOCK_SIZE != 0:
+            raise ValueError(
+                f"input length must be a multiple of {BLOCK_SIZE} bytes, got {len(data)}"
+            )
+        if self._handle is None or self._lib is None:
+            raise ValueError("cipher handle is closed")
+        return self._lib.encrypt_blocks(self._handle, data)
 
 
 # --------------------------------------------------------------------------

@@ -18,7 +18,7 @@ visible in the XML and both have shipped:
   → **Rule 7**, and gate 0.
 - **A port name Packet Tracer cannot resolve makes the whole file unopenable** —
   not one dead cable, the entire document, with a message that names no device.
-  → **Rule 8**, and gate 5.
+  → **Rule 8**, and gate 6.
 
 Packet Tracer 9.0.1 is installed on this machine and starts headless:
 
@@ -1086,10 +1086,10 @@ files — the decoded result is cached in `build/ios_attestation.json`, which re
 reports 0 suspicious.
 
 Gates 0–4 are static and fast. Gate 5 needs a cold-cache corpus decode first
-(~1–3 min for 1,058 files), then it is cached. **Gate 6 is the only one that can catch
+(~1–3 min for 1,058 files), then it is cached. **Gate 7 is the only one that can catch
 problem 8** (a bearer that is structurally perfect and functionally dead) and problem 24
-(structure ≠ function). If you can only run one, run gate 6 — it needs PT under Xvfb, which
-works offline here:
+(structure ≠ function). If you can only run one runtime check, run gate 7 — it needs PT
+under Xvfb, which works offline here:
 
 ```console
 $ xvfb-run -a python3 tools/pt_runtime_verify.py --artifact lab.pkt \\
@@ -1100,7 +1100,7 @@ Then the checks no tool can make for you:
 
 - **Can anyone log in?** Device credentials (`username`/`enable secret`, line vty) must be
   documented in the README or derivable from the file — a lab nobody can enter is not a lab
-  (problem 36). Gate 5 needs these too, which is why it takes `--username/--password`.
+  (problem 36). Gate 7 needs these too, which is why it takes `--username/--password`.
 - **Does the published number match the gate's number?** Rule 5. Re-run `--update-report`
   after any edit; a figure typed from memory is a claim, not a measurement.
 - **Would it run on someone else's machine?** No absolute paths in anything you ship
@@ -1215,7 +1215,7 @@ before reacting to either.
 
 ## Driving Packet Tracer's GUI under Xvfb
 
-Gate 5 and gate 6 need a real Packet Tracer, and the automation has sharp edges.
+Gate 6 and gate 7 need a real Packet Tracer, and the automation has sharp edges.
 
 - **Keyboard accelerators do not work.** With no window manager there is nothing to deliver
   the accelerator, so `Alt+v` never opens the View menu and `ctrl+minus` only scrolls. Use

@@ -24,8 +24,24 @@ from pkt_core.xml import (
 )
 
 REPO = Path(__file__).resolve().parent.parent
-INDEX = REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
-CORPUS = REPO.parent / "corpus" / "internet"
+INDEX = (
+    REPO / "corpus" / "CORPUS_INDEX.tsv"
+    if (REPO / "corpus" / "CORPUS_INDEX.tsv").exists()
+    else REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
+)
+CORPUS = next(
+    (
+        p
+        for p in (
+            REPO / "corpus" / "files",
+            REPO / "corpus" / "internet",
+            REPO.parent / "corpus" / "internet",
+            REPO.parent / "corpus" / "files",
+        )
+        if p.is_dir()
+    ),
+    REPO / "corpus" / "files",
+)
 
 
 # --------------------------------------------------------------------------

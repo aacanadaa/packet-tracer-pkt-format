@@ -45,7 +45,7 @@ from pkt_core.errors import (
 
 from pkt_core.builder import Lab, Layout, load_templates
 
-__version__ = "0.4.3"
+__version__ = "2.0.0"
 
 __all__ = [
     # container

@@ -165,5 +165,8 @@ class PktNode(BaseModel):
             return NotImplemented
         return self._el is other._el
 
+    def __hash__(self) -> int:
+        return hash((type(self), id(self._el)))
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"{type(self).__name__}(<{self.tag}>)"

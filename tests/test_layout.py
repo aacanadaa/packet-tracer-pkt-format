@@ -26,7 +26,7 @@ TOOLS = REPO / "tools"
 
 # delivered artefacts live outside the repo; the migration tool is run against
 # them by the maintainer, so tests operate on copies in tmp_path
-ARTEFACTS = Path("/home/saoria/filedrop/uploads")
+ARTEFACTS = Path(__import__("os").environ.get("ARTEFACT_DIR", "/home/saoria/filedrop/uploads"))
 JADGE = ARTEFACTS / "JASDF_AEWC_JADGE.pkt"
 JADGE_STD = ARTEFACTS / "JASDF_AEWC_JADGE_standard.pkt"
 

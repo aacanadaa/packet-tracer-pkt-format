@@ -6,7 +6,7 @@
 
 <img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="由代码生成并在 Packet Tracer 9.0.1 中打开的 392 台设备企业级拓扑" width="100%">
 
-*由代码生成并在 Packet Tracer 9.0.1 中打开（[IRUMA-AB 与 Y-AMLT 模型](https://github.com/aacanadaa/large-scale-packet-tracer)：386 / 392 台设备，752 条链路，28,073 行配置，共 12 层）。*
+*由代码生成并在 Packet Tracer 9.0.1 中打开（[IRUMA-AB 与 Y-AMLT 模型](https://github.com/aacanadaa/large-scale-packet-tracer)：386 / 392 台设备，752 条链路，29,073 行配置，共 12 层）。*
 
 [![PyPI](https://img.shields.io/pypi/v/packet-tracer-pkt-format.svg)](https://pypi.org/project/packet-tracer-pkt-format/)
 [![Docs](https://img.shields.io/badge/docs-aacanadaa.github.io-4c1.svg)](https://aacanadaa.github.io/packet-tracer-pkt-format/)
@@ -146,6 +146,7 @@ rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 $ pkt info    my_lab.pkt                      # 容器元数据、大小、根标签
 $ pkt unpack  my_lab.pkt -o out/              # 导出 XML、各设备 IOS 配置和拓扑图
 $ pkt pack    out/my_lab.xml -o rebuilt.pkt   # 将 XML 重新打包为容器
+$ pkt pack    out/my_lab.xml -o rebuilt.pkt --original my_lab.pkt   # XML 未修改时逐字节完全还原
 $ pkt diff    before.pkt after.pkt            # 语义差异对比
 $ pkt export  my_lab.pkt --format graphviz    # 导出 graphviz / netbox / containerlab
 $ pkt audit   my_lab.pkt --templates tools/device_templates.json
@@ -181,6 +182,9 @@ RESULT: FAILED (15 failures, 0 warnings)
 ## 格式支持
 
 已在 1,058 个真实容器文件（PT 4.1 至 9.0.1）上验证 `encode(decode(f)) == f` 逐字节一致（详见 [`docs/CORPUS_VERIFICATION.md`](docs/CORPUS_VERIFICATION.md)）：
+
+- **未修改的文件始终可逐字节还原**：将解码得到的容器作为 `original=` 传给 `encode_bytes`/`encode`（或在 `pkt pack` 时传入 `--original`），只要 XML 未改动，就会直接复用原始压缩流，不受 Python 所链接的 zlib 实现影响。
+- **重新压缩的输出**（修改过 XML，或未传 `original=`）仅在经典 zlib 下与 Packet Tracer 原始字节完全相同。链接了 zlib-ng 的环境（例如 Windows 官方 CPython 3.14，可通过 `zlib.ZLIB_RUNTIME_VERSION` 查看）会生成不同但同样合法的压缩流，解码后的 XML 完全相同，Packet Tracer 可正常打开。
 
 | 容器家族 | 对应 PT 版本 | 封装流程 | 已验证文件数 |
 | --- | --- | --- | ---: |

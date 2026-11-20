@@ -41,7 +41,7 @@ The Rust extension is optional; `pkt_core` must always work with the pure-Python
 | Rust unit tests / KATs | `cargo test --no-default-features` (in `native/pkt_core_native`) |
 | Package build check | `python -m build && twine check dist/*` |
 
-Linux CI enforces a 90% coverage gate (`pkt_core.builder` is currently excluded from the aggregate; see [`BUILDER_PORT.md`](BUILDER_PORT.md)). Windows CI runs `pytest` and `mypy`.
+CI enforces a 90% coverage gate across the entire `pkt_core` package (including `pkt_core.builder`) and runs `pytest` and `mypy --strict` on both Linux and Windows.
 
 ## Corpus and test fixtures
 

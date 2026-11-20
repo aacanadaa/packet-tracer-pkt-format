@@ -69,16 +69,18 @@ def _edges(lab: Lab) -> list[Link]:
 def _endpoint_names(lab: Lab) -> dict[str, str]:
     """Map every endpoint identifier a cable may use onto a device name.
 
-    Cables reference devices two ways: ``<FROM_DEVICE_MEM_ADDR>`` (reliably
-    equal to the device's ``<DEV_ADDR>``) and ``<FROM>save-ref-id:...``. Only
-    the former joins cleanly, so it is keyed first; the raw ``save-ref-id``
-    strings are kept as a fallback so exported graphs never lose an edge
-    silently.
+    Cables reference devices two ways: ``<FROM>save-ref-id:...`` (matching
+    ``<ENGINE><SAVE_REF_ID>``) and ``<FROM_DEVICE_MEM_ADDR>`` (matching
+    ``<WORKSPACE><LOGICAL><DEV_ADDR>``). ``SAVE_REF_ID`` is unique per device
+    even when multiple devices of the same model share a template ``DEV_ADDR``,
+    so it is indexed directly alongside ``DEV_ADDR``.
     """
     names: dict[str, str] = {}
     for dev in _nodes(lab):
+        if dev.save_ref_id:
+            names[dev.save_ref_id] = dev.name
         if dev.dev_addr:
-            names[dev.dev_addr] = dev.name
+            names.setdefault(dev.dev_addr, dev.name)
     for link in _edges(lab):
         cable = link.cable
         if cable is None:
@@ -90,6 +92,27 @@ def _endpoint_names(lab: Lab) -> dict[str, str]:
             if addr and addr in names and ref:
                 names.setdefault(ref, names[addr])
     return names
+
+
+def _resolve_link_endpoints(link: Link, resolve: dict[str, str]) -> tuple[str, str] | None:
+    cable = link.cable
+    if cable is None:
+        return None
+    a = (
+        resolve.get(cable.from_ref)
+        or resolve.get(cable.from_device_addr)
+        or cable.from_ref
+        or cable.from_device_addr
+    )
+    b = (
+        resolve.get(cable.to_ref)
+        or resolve.get(cable.to_device_addr)
+        or cable.to_ref
+        or cable.to_device_addr
+    )
+    if not a and not b:
+        return None
+    return (a, b)
 
 
 # --------------------------------------------------------------------------
@@ -117,11 +140,11 @@ def to_graphviz(lab: Lab, *, name: str = "topology") -> str:
 
     resolve = _endpoint_names(lab)
     for link in _edges(lab):
-        refs = link.endpoints
-        if refs is None:
+        endpoints = _resolve_link_endpoints(link, resolve)
+        if endpoints is None:
             continue
-        src = key_of.get(resolve.get(refs[0], ""), "")
-        dst = key_of.get(resolve.get(refs[1], ""), "")
+        src = key_of.get(endpoints[0], "")
+        dst = key_of.get(endpoints[1], "")
         if not src or not dst:
             continue
         ports = link.port_names
@@ -169,12 +192,11 @@ def to_netbox(lab: Lab) -> str:
     resolve = _endpoint_names(lab)
     cables: list[dict[str, object]] = []
     for link in _edges(lab):
-        refs = link.endpoints
-        if refs is None:
+        endpoints = _resolve_link_endpoints(link, resolve)
+        if endpoints is None:
             continue
         ports = link.port_names
-        name_a = resolve.get(refs[0], refs[0])
-        name_b = resolve.get(refs[1], refs[1])
+        name_a, name_b = endpoints
         cables.append(
             {
                 "type": link.cable_type or link.type,
@@ -230,12 +252,11 @@ def to_containerlab(lab: Lab, *, topology_name: str = "pkt") -> str:
     lines.append("  links:")
     resolve = _endpoint_names(lab)
     for link in _edges(lab):
-        refs = link.endpoints
-        if refs is None:
+        endpoints = _resolve_link_endpoints(link, resolve)
+        if endpoints is None:
             continue
         ports = link.port_names
-        name_a = resolve.get(refs[0], refs[0])
-        name_b = resolve.get(refs[1], refs[1])
+        name_a, name_b = endpoints
         key_a = node_key_by_name.get(name_a, _yaml_key(name_a))
         key_b = node_key_by_name.get(name_b, _yaml_key(name_b))
         ep_a = f"{key_a}:{ports[0]}" if ports else key_a

@@ -23,10 +23,12 @@ import os
 import re
 import sys
 
+import xml.etree.ElementTree as ET
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-import pt9       # noqa: E402
+from pkt_core.codec.container import decode  # noqa: E402
 import scoring   # noqa: E402
 import lab_api   # noqa: E402
 
@@ -43,7 +45,7 @@ def _files(paths):
 
 
 def _dec(path):
-    return pt9.decode(path, "pkt", verify_tag=False)
+    return decode(path, verify_tag=False).xml
 
 
 def harvest_models(files):
@@ -73,16 +75,20 @@ def harvest_models(files):
                 if was_off:
                     off.append(model)
                 models[model] = blk
-        txt = xml.decode("utf-8", "replace")
-        for mm in re.finditer(r"<MODEL>([^<]+)</MODEL>", txt):
-            name = mm.group(1)
-            if name in modules or name in ("", "PT-IOT-CUSTOM-IO"):
+            try:
+                dev_el = ET.fromstring(blk)
+            except ET.ParseError:
                 continue
-            i = txt.find("<MODEL>%s</MODEL>" % name)
-            a = txt.rfind("<SLOT>", 0, i)
-            b = txt.find("</SLOT>", i) + len("</SLOT>")
-            if a >= 0 and b > a and len(txt[a:b]) < 20000:
-                modules[name] = txt[a:b].encode()
+            for slot_el in dev_el.iter("SLOT"):
+                mod = slot_el.find("MODULE")
+                if mod is None:
+                    continue
+                name = (mod.findtext("MODEL") or "").strip()
+                if not name or name in modules or name == "PT-IOT-CUSTOM-IO":
+                    continue
+                raw_slot = ET.tostring(slot_el, encoding="utf-8").strip()
+                if len(raw_slot) < 20000:
+                    modules[name] = raw_slot
     return models, modules, off
 
 

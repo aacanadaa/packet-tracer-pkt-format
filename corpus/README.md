@@ -63,7 +63,7 @@ document roots:
 | Decode with the modern container | 865 |
 | — of which `PACKETTRACER5` | 508 |
 | — of which `PACKETTRACER5_ACTIVITY` | 357 |
-| **Legacy container (not yet decoded)** | **193** |
+| **Legacy container (PT 4.1–5.3.2, decoded)** | **193** |
 | Distinct upstream sources | 40 |
 
 See [`docs/ANALYSIS_PLAN.md`](../docs/ANALYSIS_PLAN.md) and

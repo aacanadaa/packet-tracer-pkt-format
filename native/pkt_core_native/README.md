@@ -36,7 +36,7 @@ Botan and the NESSIE vectors use.
 
 ## Build
 
-Requires a Rust toolchain (1.74+) and Python 3.10+. `maturin` drives the
+Requires a Rust toolchain (1.83+) and Python 3.10+. `maturin` drives the
 build; a Makefile wraps the common flows.
 
 ```sh

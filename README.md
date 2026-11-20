@@ -6,7 +6,7 @@ This repo documents the Packet Tracer file format (both legacy PT 4.1–5.3.2 an
 
 <img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="392-device Packet Tracer enterprise topology generated from code and opened in Packet Tracer 9.0.1" width="100%">
 
-*Generated from code and opened in Packet Tracer 9.0.1 ([IRUMA-AB and Y-AMLT models](https://github.com/aacanadaa/large-scale-packet-tracer): 386 and 392 devices, 752 links, 28,073 config lines across 12 tiers).*
+*Generated from code and opened in Packet Tracer 9.0.1 ([IRUMA-AB and Y-AMLT models](https://github.com/aacanadaa/large-scale-packet-tracer): 386 and 392 devices, 752 links, 29,073 config lines across 12 tiers).*
 
 [![PyPI](https://img.shields.io/pypi/v/packet-tracer-pkt-format.svg)](https://pypi.org/project/packet-tracer-pkt-format/)
 [![Docs](https://img.shields.io/badge/docs-aacanadaa.github.io-4c1.svg)](https://aacanadaa.github.io/packet-tracer-pkt-format/)

@@ -65,16 +65,6 @@ Rendered correctly:
 
 **No load errors were reported.**
 
-## Screenshot
-
-![Full topology in Packet Tracer 9.0.1](../../filedrop/large_campus_topology_full.png)
-
-The captured image and the generated `.pkt` are in the filedrop:
-
-* `filedrop/large_campus_topology_full.png`
-* `filedrop/large_campus_topology_desktop.png`
-* `filedrop/large_campus.pkt`
-
 ## Reproducing
 
 ```console
@@ -83,15 +73,14 @@ $ python3 -c "
 from pkt_core import decode_bytes, encode_bytes
 raw = open('large_campus.pkt','rb').read()
 c = decode_bytes(raw)
-assert encode_bytes(c.xml, c.format_name) == raw
+assert encode_bytes(c.xml, c.format_name, original=c) == raw
 print('byte-exact round-trip OK')
 "
 $ tools/verify_in_packet_tracer.sh /path/to/PacketTracer large_campus.pkt full.png
 ```
 
 Scale is controlled with `--clients N` (end devices per access switch). The
-generator is deterministic: the same arguments produce the same file modulo
-the UUIDs used for physical-workspace leaves.
+generator is deterministic: the same arguments produce byte-identical output.
 
 ## Observations
 

@@ -154,18 +154,31 @@ class Workspace(PktNode):
     @property
     def x(self) -> float:
         node = self.logical
-        return float(Module.from_element(node)._float("X")) if node is not None else 0.0
+        child = node.find("X") if node is not None else None
+        if child is None:
+            return 0.0
+        try:
+            return float(child.text.strip())
+        except ValueError:
+            return 0.0
 
     @property
     def y(self) -> float:
         node = self.logical
-        return float(Module.from_element(node)._float("Y")) if node is not None else 0.0
+        child = node.find("Y") if node is not None else None
+        if child is None:
+            return 0.0
+        try:
+            return float(child.text.strip())
+        except ValueError:
+            return 0.0
 
     @property
     def cluster_id(self) -> str:
         """Cluster membership, e.g. ``1-1`` for the root cluster."""
         node = self.logical
-        return Module.from_element(node)._text("DEVCLUSTERID") if node is not None else ""
+        child = node.find("DEVCLUSTERID") if node is not None else None
+        return child.text.strip() if child is not None else ""
 
     @property
     def physical_path(self) -> str:
@@ -176,18 +189,22 @@ class Workspace(PktNode):
     def dev_addr(self) -> str:
         node = self.logical
         if node is not None:
-            val = Workspace.from_element(node)._text("DEV_ADDR")
-            if val:
-                return val
+            child = node.find("DEV_ADDR")
+            if child is not None:
+                val = child.text.strip()
+                if val:
+                    return val
         return self._text("DEV_ADDR")
 
     @property
     def mem_addr(self) -> str:
         node = self.logical
         if node is not None:
-            val = Workspace.from_element(node)._text("MEM_ADDR")
-            if val:
-                return val
+            child = node.find("MEM_ADDR")
+            if child is not None:
+                val = child.text.strip()
+                if val:
+                    return val
         return self._text("MEM_ADDR")
 
 
@@ -214,23 +231,34 @@ class Device(PktNode):
     @property
     def kind(self) -> str:
         """Device family as Packet Tracer names it (``Switch``, ``Router``, ``Pc``...)."""
-        node = self._engine().find("TYPE")
+        engine = self.engine
+        node = engine.find("TYPE") if engine is not None else None
         return node.text.strip() if node is not None else ""
 
     @property
     def model(self) -> str:
         """Chassis model, from the ``<TYPE model="...">`` attribute."""
-        node = self._engine().find("TYPE")
+        engine = self.engine
+        node = engine.find("TYPE") if engine is not None else None
         return node.get("model") or "" if node is not None else ""
 
     @property
     def custom_model(self) -> str:
-        node = self._engine().find("TYPE")
+        engine = self.engine
+        node = engine.find("TYPE") if engine is not None else None
         return node.get("customModel") or "" if node is not None else ""
 
     @property
     def name(self) -> str:
-        node = self._engine().find("NAME")
+        engine = self.engine
+        node = engine.find("NAME") if engine is not None else None
+        return node.text.strip() if node is not None else ""
+
+    @property
+    def save_ref_id(self) -> str:
+        """Device reference identifier (``<ENGINE><SAVE_REF_ID>``), e.g. ``save-ref-id:...``."""
+        engine = self.engine
+        node = engine.find("SAVE_REF_ID") if engine is not None else None
         return node.text.strip() if node is not None else ""
 
     def set_name(self, value: str) -> None:
@@ -285,8 +313,9 @@ class Device(PktNode):
         different field with its own semantics (unused ports legitimately ship
         ``false``/absent) and is exposed via :class:`Port`.
         """
-        node = self._engine().find("POWER")
-        if node is None or node.text is None:
+        engine = self.engine
+        node = engine.find("POWER") if engine is not None else None
+        if node is None:
             return "absent"
         text = node.text.strip()
         if not text:
@@ -305,12 +334,16 @@ class Device(PktNode):
 
     @property
     def description(self) -> str:
-        node = self._engine().find("DESCRIPTION")
+        engine = self.engine
+        node = engine.find("DESCRIPTION") if engine is not None else None
         return node.text.strip() if node is not None else ""
 
     @property
     def modules(self) -> list[Module]:
-        return [Module.from_element(m) for m in self._engine().find_all("MODULE")]
+        engine = self.engine
+        if engine is None:
+            return []
+        return [Module.from_element(m) for m in engine.find_all("MODULE")]
 
     @property
     def ports(self) -> list[Port]:
@@ -392,15 +425,11 @@ class Device(PktNode):
         """Internal device address.
 
         This is what cables reference as ``<FROM_DEVICE_MEM_ADDR>`` /
-        ``<TO_DEVICE_MEM_ADDR>``, and is the reliable way to resolve a link
-        endpoint back to a device. ``<FROM>save-ref-id:...`` values are a
-        *different* identifier space and cannot be matched to device names.
+        ``<TO_DEVICE_MEM_ADDR>``, and is one way to resolve a link endpoint
+        back to a device alongside :attr:`save_ref_id` (``<ENGINE><SAVE_REF_ID>``).
         """
-        node = self._el.find("WORKSPACE")
-        if node is None:
-            return ""
-        logical = node.find("LOGICAL")
-        return Workspace.from_element(logical)._text("DEV_ADDR") if logical is not None else ""
+        ws = self.workspace
+        return ws.dev_addr if ws is not None else ""
 
 
 class Cable(PktNode):

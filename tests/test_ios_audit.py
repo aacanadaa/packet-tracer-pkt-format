@@ -51,8 +51,24 @@ audit = pytest.importorskip(
 )
 
 # Corpus locations used by the rest of the suite (see tests/test_corpus_acceptance.py).
-CORPUS_INDEX = REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
-CORPUS_DIR = REPO.parent / "corpus" / "internet"
+CORPUS_INDEX = (
+    REPO / "corpus" / "CORPUS_INDEX.tsv"
+    if (REPO / "corpus" / "CORPUS_INDEX.tsv").exists()
+    else REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
+)
+CORPUS_DIR = next(
+    (
+        p
+        for p in (
+            REPO / "corpus" / "files",
+            REPO / "corpus" / "internet",
+            REPO.parent / "corpus" / "internet",
+            REPO.parent / "corpus" / "files",
+        )
+        if p.is_dir()
+    ),
+    REPO / "corpus" / "files",
+)
 
 
 # =========================================================================== #

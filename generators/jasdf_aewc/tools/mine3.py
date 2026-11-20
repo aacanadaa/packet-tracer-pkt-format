@@ -52,7 +52,10 @@ for f in files:
         for L in net.iter('LINK'):
             c=L.find('CABLE')
             if c is None: continue
-            fa,pa,fb,pb=c.findtext('FROM'),c.findtext('PORT'),c.findtext('TO'),c.findtext('PORT')
+            fa,fb=c.findtext('FROM'),c.findtext('TO')
+            c_ports=[p.text or '' for p in c.findall('PORT')]
+            pa=c_ports[0] if len(c_ports)>0 else ''
+            pb=c_ports[1] if len(c_ports)>1 else ''
             if fa in devs and pa and devs[fa] in TARGETS: ports[devs[fa]][pa.strip()]+=1
             if fb in devs and pb and devs[fb] in TARGETS: ports[devs[fb]][pb.strip()]+=1
 print('decoded',ok,'failed',fail)

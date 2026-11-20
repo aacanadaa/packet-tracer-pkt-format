@@ -137,14 +137,28 @@ def derive_values(answer_xml):
                     vals["Subnet Mask"] = ma.group(2)
                 if re.match(r"\s*no shutdown", line):
                     vals["Port Up"] = "1"
-        ip = re.search(r"<IP>([^<]*)</IP>", blk)
-        gw = re.search(r"<PORT_GATEWAY>([^<]*)</PORT_GATEWAY>", blk)
+        ip = re.search(r"<IP>([^<]+)</IP>", blk)
+        gw = re.search(r"<GATEWAY>([^<]+)</GATEWAY>", blk) or re.search(
+            r"<PORT_GATEWAY>([^<]+)</PORT_GATEWAY>", blk
+        )
         if ip and ip.group(1):
             vals["IP Address"] = ip.group(1)
         if gw and gw.group(1):
             vals["Default Gateway"] = gw.group(1)
         out[name] = vals
     return out
+
+
+def derive_from_network(answer_xml):
+    """Return a list of ``{"name": ..., "model": ..., "overrides": ...}`` dicts
+    suitable for :func:`from_shapes` / :func:`build` from a decoded answer network."""
+    vals = derive_values(answer_xml)
+    spec = []
+    for name, overrides in vals.items():
+        model = overrides.get("Device Model", "")
+        if model:
+            spec.append({"name": name, "model": model, "overrides": overrides})
+    return spec
 
 
 # --------------------------------------------------------------------------- #
@@ -203,12 +217,16 @@ def harvest_shapes(activity_xmls):
 
 def save_shapes(shapes, path):
     import gzip
-    open(path, "wb").write(gzip.compress(json.dumps(shapes).encode("utf-8"), 9))
+    with open(path, "wb") as fh:
+        fh.write(gzip.compress(json.dumps(shapes).encode("utf-8"), 9))
 
 
-def load_shapes(path):
+def load_shapes(path=None):
     import gzip
-    b = open(path, "rb").read()
+    if path is None:
+        path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "device_shapes.json")
+    with open(path, "rb") as fh:
+        b = fh.read()
     if b[:2] == b"\x1f\x8b":
         b = gzip.decompress(b)
     return json.loads(b)
@@ -233,11 +251,13 @@ def _retarget(node_xml, name, overrides):
     return ET.tostring(el, encoding="unicode")
 
 
-def from_shapes(spec, shapes):
+def from_shapes(spec, shapes=None):
     """Build (initialsetup_xml, comparisons_xml) from harvested shapes.
 
     spec: [{"name": "R9", "model": "2911", "overrides": {...}}, ...]
     """
+    if shapes is None:
+        shapes = load_shapes()
     init_nodes, comp_nodes = [], []
     missing = []
     for d in spec:
@@ -262,3 +282,6 @@ def from_shapes(spec, shapes):
         import sys as _sys
         print("scoring: no shape for %s (not graded)" % sorted(set(missing)), file=_sys.stderr)
     return initialsetup, comparisons
+
+
+build = from_shapes

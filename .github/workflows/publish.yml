@@ -3,13 +3,14 @@ name: Publish
 on:
   push:
     tags:
+      - "v*"
       - "sdk-v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build and publish (e.g. sdk-v0.4.3)"
+        description: "Tag to build and publish (e.g. v2.0.0)"
         required: true
-        default: "sdk-v0.4.3"
+        default: "v2.0.0"
 
 permissions:
   contents: read
@@ -31,7 +32,10 @@ jobs:
           else
             TAG="${GITHUB_REF_NAME}"
           fi
+          VERSION="${TAG#sdk-}"
+          VERSION="${VERSION#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -40,6 +44,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Verify version consistency
+        env:
+          EXPECTED_VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os, tomllib
+          from pathlib import Path
+          expected = os.environ["EXPECTED_VERSION"]
+          pyproj = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          native_pyproj = tomllib.loads(Path("native/pkt_core_native/pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          native_cargo = tomllib.loads(Path("native/pkt_core_native/Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+          init_src = Path("src/pkt_core/__init__.py").read_text(encoding="utf-8")
+          assert pyproj == expected, f"pyproject.toml version {pyproj!r} != tag {expected!r}"
+          assert native_pyproj == expected, f"native pyproject.toml version {native_pyproj!r} != tag {expected!r}"
+          assert native_cargo == expected, f"native Cargo.toml version {native_cargo!r} != tag {expected!r}"
+          assert f'__version__ = "{expected}"' in init_src, f"src/pkt_core/__init__.py does not declare __version__ = {expected!r}"
+          print(f"All package versions match {expected}")
+          PY
 
       - name: Build and verify wheel and sdist
         run: |
@@ -74,7 +97,8 @@ jobs:
           else
             TAG="${GITHUB_REF_NAME}"
           fi
-          VERSION="${TAG#sdk-v}"
+          VERSION="${TAG#sdk-}"
+          VERSION="${VERSION#v}"
           REPO="${GITHUB_REPOSITORY,,}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

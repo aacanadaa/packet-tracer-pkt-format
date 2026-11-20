@@ -21,8 +21,24 @@ from pkt_core.crypto.stream import layer_b
 from pkt_core.errors import FormatError, TruncatedFileError
 
 REPO = Path(__file__).resolve().parent.parent
-CORPUS = REPO.parent / "corpus" / "internet"
-INDEX = REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
+INDEX = (
+    REPO / "corpus" / "CORPUS_INDEX.tsv"
+    if (REPO / "corpus" / "CORPUS_INDEX.tsv").exists()
+    else REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
+)
+CORPUS = next(
+    (
+        p
+        for p in (
+            REPO / "corpus" / "files",
+            REPO / "corpus" / "internet",
+            REPO.parent / "corpus" / "internet",
+            REPO.parent / "corpus" / "files",
+        )
+        if p.is_dir()
+    ),
+    REPO / "corpus" / "files",
+)
 
 
 def _legacy_files() -> list[Path]:

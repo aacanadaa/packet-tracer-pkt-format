@@ -95,8 +95,9 @@ def test_det_uuid_differs_for_different_inputs():
 def test_det_uuid_is_not_uuids_random_source():
     """A determinism fix that still called uuid4 would pass the tests above
     only by luck; assert the random path is gone from the module source."""
-    src = (TOOLS / "lab_api.py").read_text()
-    assert "uuid4()" not in src
+    for path in (TOOLS / "lab_api.py", REPO / "src" / "pkt_core" / "builder" / "lab.py"):
+        src = path.read_text()
+        assert "uuid4()" not in src
 
 
 # --------------------------------------------------------------------------- #
@@ -117,7 +118,8 @@ def test_uuid_reference_structure_is_stable(templates):
     """
     xml = _serialise(_build(templates))
     ids = UUID_RE.findall(xml)
-    assert len(ids) == len(set(ids)) or len(set(ids)) > 0
+    assert len(set(ids)) > 0
+    assert len(set(ids)) < len(ids), "container/rack UUIDs must be referenced multiple times"
     defs = re.findall(r"<UUID_STR>(.*?)</UUID_STR>", xml)
     assert defs, "expected physical leaf definitions"
     for d in defs:
@@ -126,10 +128,9 @@ def test_uuid_reference_structure_is_stable(templates):
             "Tracer report 'corrupted Physical Workspace data'"
         )
         assert UUID_RE.fullmatch(d[1:-1]), d
-    # the number of distinct ids must equal the number of definitions plus any
-    # container/rack ids inherited from the seed; it must never exceed the
-    # occurrence count
-    assert len(set(ids)) <= len(ids)
+    # every defined leaf UUID must appear among the document's UUIDs, and there
+    # must be at least as many distinct UUIDs as leaf definitions
+    assert len(set(ids)) >= len(defs)
 
 
 def test_leaf_uuids_are_unique_per_device(templates):

@@ -107,7 +107,7 @@ obfuscate_bytes = deobfuscate_bytes
 
 def quncompress(payload: bytes) -> bytes:
     """Invert Qt ``qCompress``: 4-byte big-endian length + zlib stream."""
-    if len(payload) < 5:
+    if len(payload) < 6:
         raise LegacyFormatError("payload too short for qCompress framing")
     length = struct.unpack(">I", payload[:4])[0]
     if length > MAX_XML_BYTES:
@@ -116,7 +116,12 @@ def quncompress(payload: bytes) -> bytes:
     if cmf != 0x78 or ((cmf << 8) | flg) % 31 != 0:
         raise LegacyFormatError(f"bad zlib header {payload[4:6].hex()}")
     try:
-        xml = zlib.decompress(payload[4:])
+        d = zlib.decompressobj()
+        xml = d.decompress(payload[4:], length + 1)
+        if d.unconsumed_tail:
+            raise LegacyFormatError(f"qCompress payload exceeds declared length ({length})")
+        if not d.eof:
+            xml += d.flush(max(1, length + 1 - len(xml)))
     except zlib.error as exc:
         raise LegacyFormatError(f"zlib inflate failed: {exc}") from exc
     if length != len(xml):
@@ -362,19 +367,36 @@ def modern_layer_a(buf: bytes) -> bytes:
 
 
 def _gcrypt_block_enc(cipher_name: str, key: bytes) -> Callable[[bytes], bytes]:
-    """ECB single-block encryptor via libgcrypt (same backend as pt9.py)."""
-    import ctypes
+    """ECB single-block encryptor via pkt_core.crypto.ciphers or libgcrypt."""
+    from pkt_core.crypto.ciphers import get_cipher
+    from pkt_core.errors import UnsupportedCipherError
 
-    g = ctypes.CDLL("libgcrypt.so.20")
+    try:
+        cipher = get_cipher(cipher_name, key)
+        return cipher.encrypt_block
+    except UnsupportedCipherError:
+        pass
+
+    import ctypes
+    import ctypes.util
+
+    found = ctypes.util.find_library("gcrypt") or "libgcrypt.so.20"
+    g = ctypes.CDLL(found)
     g.gcry_check_version.restype = ctypes.c_char_p
     g.gcry_check_version(None)
+    g.gcry_cipher_map_name.restype = ctypes.c_int
+    g.gcry_cipher_map_name.argtypes = [ctypes.c_char_p]
     g.gcry_cipher_open.argtypes = [
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.c_int,
         ctypes.c_int,
         ctypes.c_uint,
     ]
+    g.gcry_cipher_open.restype = ctypes.c_int
+    g.gcry_cipher_close.argtypes = [ctypes.c_void_p]
+    g.gcry_cipher_close.restype = None
     g.gcry_cipher_setkey.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
+    g.gcry_cipher_setkey.restype = ctypes.c_int
     g.gcry_cipher_encrypt.argtypes = [
         ctypes.c_void_p,
         ctypes.c_char_p,
@@ -382,20 +404,33 @@ def _gcrypt_block_enc(cipher_name: str, key: bytes) -> Callable[[bytes], bytes]:
         ctypes.c_char_p,
         ctypes.c_size_t,
     ]
-    cid = {"twofish": 10, "aes": 7, "blowfish": 4, "cast5": 3}[cipher_name]
+    g.gcry_cipher_encrypt.restype = ctypes.c_int
+    cid = int(g.gcry_cipher_map_name(cipher_name.encode("ascii")))
+    if not cid:
+        raise LegacyFormatError(f"libgcrypt has no cipher {cipher_name!r}")
     h = ctypes.c_void_p()
     if g.gcry_cipher_open(ctypes.byref(h), cid, 1, 0) != 0:
         raise LegacyFormatError("gcry_cipher_open failed")
     if g.gcry_cipher_setkey(h, key, len(key)) != 0:
+        g.gcry_cipher_close(h)
         raise LegacyFormatError("gcry_cipher_setkey failed")
 
-    def enc(blk: bytes) -> bytes:
-        out = ctypes.create_string_buffer(16)
-        if g.gcry_cipher_encrypt(h, out, 16, blk, 16) != 0:
-            raise LegacyFormatError("gcry_cipher_encrypt failed")
-        return out.raw
+    class _Handle:
+        def __init__(self, handle: ctypes.c_void_p) -> None:
+            self._h: ctypes.c_void_p | None = handle
 
-    return enc
+        def __call__(self, blk: bytes) -> bytes:
+            out = ctypes.create_string_buffer(16)
+            if g.gcry_cipher_encrypt(self._h, out, 16, blk, 16) != 0:
+                raise LegacyFormatError("gcry_cipher_encrypt failed")
+            return out.raw
+
+        def __del__(self) -> None:
+            if self._h is not None:
+                g.gcry_cipher_close(self._h)
+                self._h = None
+
+    return _Handle(h)
 
 
 def _cmac_subkeys(E: Callable[[bytes], bytes]) -> tuple[bytes, bytes]:

@@ -125,8 +125,9 @@ item nodes from a reference activity** and retargeting them:
 
 ```python
 import scoring, activity
-ref = pt9.decode("reference_activity.pkt").decode()          # has 2911/PC-PT nodes
-vals = scoring.derive_values(pt9.decode("answer.pkt"))       # {device: {item: value}}
+from pkt_core import decode
+ref = decode("reference_activity.pkt").xml.decode()          # has 2911/PC-PT nodes
+vals = scoring.derive_values(decode("answer.pkt").xml)       # {device: {item: value}}
 init, comp = scoring.from_template(
     ref,
     devices=["ISP-Router", "DMZ-Switch", "Branch-Admin-PC"], # reference nodes to clone

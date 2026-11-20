@@ -57,7 +57,7 @@ from pkt_core.models.services import (
 REPO = Path(__file__).resolve().parent.parent
 TEMPLATES_JSON = REPO / "tools" / "device_templates.json"
 GENERATOR = REPO / "generators" / "jasdf_aewc" / "build_jasdf_aewc.py"
-REAL_ARTEFACT = Path("/home/saoria/filedrop/uploads/JASDF_AEWC_JADGE.pkt")
+REAL_ARTEFACT = Path(os.environ.get("ARTEFACT_DIR", "/home/saoria/filedrop/uploads")) / "JASDF_AEWC_JADGE.pkt"
 
 needs_real = pytest.mark.skipif(
     not REAL_ARTEFACT.exists(),

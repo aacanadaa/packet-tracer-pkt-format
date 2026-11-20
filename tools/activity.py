@@ -19,18 +19,32 @@ networks.  Built on the pt9 codec.  Reverse-engineered from PT 9.0.1; see
 The `.pka` root is `<PACKETTRACER5_ACTIVITY>` and embeds **three** `<PACKETTRACER5>`
 documents: [0] working/current, [1] initial network, [2] answer network.
 """
+import os
 import re
+from pathlib import Path
 
-import pt9
+from pkt_core.codec.container import decode_bytes, encode
+from pkt_core.xml.nodes import escape_xml_text
 
 PKT = re.compile(r"<PACKETTRACER5>.*?</PACKETTRACER5>", re.S)
 
 
+def _escape_attr(value: str) -> str:
+    return escape_xml_text(str(value)).replace('"', "&quot;")
+
+
 class Activity:
-    def __init__(self, template):
-        raw = open(template, "rb").read()
-        if template.lower().endswith((".pka", ".pkt")):
-            raw = pt9.decode_bytes(raw, "pkt")
+    def __init__(self, template: str | os.PathLike[str] | bytes | None = None):
+        if template is None:
+            template = Path(__file__).resolve().parent / "activity_skeleton.xml"
+        if isinstance(template, bytes):
+            raw = template
+        else:
+            path_str = os.fspath(template)
+            with open(path_str, "rb") as fh:
+                raw = fh.read()
+            if path_str.lower().endswith((".pka", ".pkt")):
+                raw = decode_bytes(raw).xml
         self.xml = raw.decode("utf-8")
         if "<PACKETTRACER5_ACTIVITY>" not in self.xml:
             raise ValueError("template is not an activity (no <PACKETTRACER5_ACTIVITY>)")
@@ -43,28 +57,45 @@ class Activity:
         if not m:
             return
         el = m.group(0)
+        escaped = _escape_attr(value)
         if re.search(r'\b%s="[^"]*"' % name, el):
-            el = re.sub(r'\b%s="[^"]*"' % name, '%s="%s"' % (name, value), el)
+            el = re.sub(
+                r'\b%s="[^"]*"' % name,
+                lambda _m: '%s="%s"' % (name, escaped),
+                el,
+            )
         else:
-            el = el[:-1] + ' %s="%s">' % (name, value)
+            el = el[:-1] + ' %s="%s">' % (name, escaped)
         self.xml = self.xml[:m.start()] + el + self.xml[m.end():]
 
     def _set_text(self, tag, value):
-        self.xml = re.sub(r"<%s(?:\s[^>]*)?>.*?</%s>" % (tag, tag),
-                          "<%s>%s</%s>" % (tag, value, tag), self.xml, count=1, flags=re.S)
+        escaped = escape_xml_text(str(value))
+        self.xml = re.sub(
+            r"<%s(?:\s[^>]*)?>.*?</%s>" % (tag, tag),
+            lambda _m: "<%s>%s</%s>" % (tag, escaped, tag),
+            self.xml,
+            count=1,
+            flags=re.S,
+        )
 
     # ---- public API --------------------------------------------------------
     def set_instructions(self, pages, enable_tab=False, layout=0, title=""):
         """pages: list of HTML strings (or a single string)."""
         if isinstance(pages, str):
             pages = [pages]
+        escaped_title = _escape_attr(title)
         body = "".join(
             '<PAGE translate="true" tabify="%d" title="%s"><![CDATA[%s]]></PAGE>'
-            % (i, title, html) for i, html in enumerate(pages))
+            % (i, escaped_title, html) for i, html in enumerate(pages))
         new = '<INSTRUCTIONS enable_tab="%s" layout="%d">%s</INSTRUCTIONS>' % (
             "true" if enable_tab else "false", layout, body)
-        self.xml = re.sub(r"<INSTRUCTIONS\b[^>]*>.*?</INSTRUCTIONS>", new,
-                          self.xml, count=1, flags=re.S)
+        self.xml = re.sub(
+            r"<INSTRUCTIONS\b[^>]*>.*?</INSTRUCTIONS>",
+            lambda _m: new,
+            self.xml,
+            count=1,
+            flags=re.S,
+        )
 
     def set_password(self, password: str) -> None:
         """Activity-Wizard password.
@@ -109,24 +140,34 @@ class Activity:
         self._set_text("CLEAN_ACTIVITY", "true" if flag else "false")
 
     def set_scoring_xml(self, initialsetup_xml, comparisons_xml):
-        self.xml = re.sub(r"<INITIALSETUP>.*?</INITIALSETUP>", initialsetup_xml,
-                          self.xml, count=1, flags=re.S)
-        self.xml = re.sub(r"<COMPARISONS>.*?</COMPARISONS>", comparisons_xml,
-                          self.xml, count=1, flags=re.S)
+        self.xml = re.sub(
+            r"<INITIALSETUP>.*?</INITIALSETUP>",
+            lambda _m: initialsetup_xml,
+            self.xml,
+            count=1,
+            flags=re.S,
+        )
+        self.xml = re.sub(
+            r"<COMPARISONS>.*?</COMPARISONS>",
+            lambda _m: comparisons_xml,
+            self.xml,
+            count=1,
+            flags=re.S,
+        )
 
-    def set_scoring(self, spec):
+    def set_scoring(self, spec, shapes=None):
         """spec: list of device dicts, or an answer-network XML to derive from."""
         import scoring
         if isinstance(spec, (str, bytes)):
             spec = scoring.derive_from_network(spec)
-        init, comp = scoring.build(spec)
+        init, comp = scoring.build(spec, shapes=shapes)
         self.set_scoring_xml(init, comp)
 
     def set_networks(self, initial_xml=None, answer_xml=None):
         """Replace the initial (block 1) and answer (block 2) networks.
         Each value is full `<PACKETTRACER5>…</PACKETTRACER5>` XML (bytes or str),
-        e.g. produced by pt9.decode(some.pkt).  Block 0 (current) is set to the
-        same as initial, matching how PT saves a fresh activity."""
+        e.g. produced by pkt_core.decode(some.pkt).xml.  Block 0 (current) is set
+        to the same as initial, matching how PT saves a fresh activity."""
         blocks = list(PKT.finditer(self.xml))
         if initial_xml is not None:
             if isinstance(initial_xml, bytes):
@@ -143,9 +184,8 @@ class Activity:
             self.xml = self.xml[:b.start()] + answer_xml + self.xml[b.end():]
 
     def save(self, path):
-        pt9.encode(path, self.xml.encode("utf-8"), "pkt")
+        encode(os.fspath(path), self.xml.encode("utf-8"), "pkt")
 
 
 if __name__ == "__main__":
-    import sys
     print("activity.py: import Activity. See docs/ACTIVITY.md")

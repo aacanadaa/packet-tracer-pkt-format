@@ -94,7 +94,7 @@ def cmd_info(args: argparse.Namespace) -> int:
 # pkt unpack
 # --------------------------------------------------------------------------
 def _safe_name(value: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_." else "_" for c in value).strip("_") or "unnamed"
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in value).strip("_.") or "unnamed"
 
 
 def cmd_unpack(args: argparse.Namespace) -> int:
@@ -118,17 +118,18 @@ def cmd_unpack(args: argparse.Namespace) -> int:
     xml_path = out_dir / f"{stem}.xml"
     xml_path.write_bytes(container.xml)
 
-    meta = {
+    meta: dict[str, object] = {
         "source_file": path.name,
         "source_size": path.stat().st_size,
         "format": container.format_name,
         "cipher": container.spec.cipher,
-        "key_byte": f"0x{container.spec.key_byte:02x}",
-        "iv_byte": f"0x{container.spec.iv_byte:02x}",
-        "root_tag": container.root_tag,
-        "is_activity": container.is_activity,
-        "xml_bytes": len(container.xml),
     }
+    if not container.spec.is_legacy:
+        meta["key_byte"] = f"0x{container.spec.key_byte:02x}"
+        meta["iv_byte"] = f"0x{container.spec.iv_byte:02x}"
+    meta["root_tag"] = container.root_tag
+    meta["is_activity"] = container.is_activity
+    meta["xml_bytes"] = len(container.xml)
     meta_path = out_dir / f"{stem}.container.json"
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
@@ -267,6 +268,10 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
     if diff.identical and same_container and a.xml == b.xml:
         print("\nDocuments are identical.")
+        return 0
+
+    if diff.identical and a.xml == b.xml:
+        print("\nXML documents are identical (containers differ only in outer format).")
         return 0
 
     if diff.identical:

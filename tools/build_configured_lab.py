@@ -34,7 +34,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import pt9  # noqa: E402
+from pkt_core.codec.container import decode, decode_bytes, encode  # noqa: E402
 
 
 def harvest(saves, wanted):
@@ -44,7 +44,7 @@ def harvest(saves, wanted):
         if len(out) == len(wanted):
             break
         try:
-            xml = pt9.decode(f, "pkt", verify_tag=False)
+            xml = decode(f, "pkt", verify_tag=False).xml
         except Exception:
             continue
         for m in re.finditer(rb"<DEVICE>.*?</DEVICE>", xml, re.S):
@@ -59,8 +59,9 @@ def harvest(saves, wanted):
 
 class Builder:
     def __init__(self, seed_pkt, blocks):
-        seed = open(seed_pkt, "rb").read()
-        self.base = ET.fromstring(pt9.decode_bytes(seed, "pkt") if seed_pkt.endswith(".pkt") else seed)
+        with open(seed_pkt, "rb") as fh:
+            seed = fh.read()
+        self.base = ET.fromstring(decode_bytes(seed, "pkt").xml if seed_pkt.endswith(".pkt") else seed)
         self.net = self.base.find("NETWORK")
         self.devs = self.net.find("DEVICES")
         d0 = self.devs.findall("DEVICE")[0]
@@ -117,6 +118,12 @@ class Builder:
             if e is None:
                 e = ET.SubElement(port, tag)
             e.text = val
+        eng = el.find("ENGINE")
+        if eng is not None:
+            gate = eng.find("GATEWAY")
+            if gate is None:
+                gate = ET.SubElement(eng, "GATEWAY")
+            gate.text = gw
 
     def link(self, a, pa, b, pb):
         L = ET.SubElement(self.net.find("LINKS"), "LINK")
@@ -130,7 +137,7 @@ class Builder:
             ET.SubElement(cab, t).text = v
 
     def save(self, path):
-        pt9.encode(path, ET.tostring(self.base, encoding="unicode").encode("utf-8"), "pkt")
+        encode(path, ET.tostring(self.base, encoding="unicode").encode("utf-8"), "pkt")
 
 
 def header(host):

@@ -72,7 +72,7 @@ Everything downstream assumes verifier-based detection, not magic bytes.
 
 ## 3. Format taxonomy (evidence-backed)
 
-### Family M — modern (PT 5.3.3 → 9.0.1) · 822 samples · **SOLVED**
+### Family M — modern (PT 5.3.3 → 9.0.1) · 865 samples · **SOLVED**
 
 ```
 raw bytes
@@ -97,7 +97,7 @@ Earliest confirmed member is `<VERSION>5.3.3.0019`; the legacy family stops at
 `5.3.3`'s predecessor `5.3.2.0027`, with **zero version overlap**. The container
 switchover is therefore **5.3.2 → 5.3.3**, not 5.x → 6.0.
 
-### Family L — legacy (PT 4.1 – 5.3.2) · 192 samples · **SOLVED**
+### Family L — legacy (PT 4.1 – 5.3.2) · 193 samples · **SOLVED**
 
 Two independent populations, which is ideal for cross-validation:
 

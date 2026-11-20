@@ -165,7 +165,7 @@ class EaxResult(NamedTuple):
         return hmac.compare_digest(self.computed_tag, self.stored_tag)
 
 
-def _build_encrypt_block(cipher_name: str, key: bytes) -> EncryptBlock:
+def _open_cipher(cipher_name: str, key: bytes) -> "BlockCipher":
     # Imported lazily so the AEAD maths does not hard-depend on a particular
     # cipher backend: the backend is pluggable (pure Python or an accelerator),
     # and this module only needs an encrypt-block oracle.
@@ -178,7 +178,17 @@ def _build_encrypt_block(cipher_name: str, key: bytes) -> EncryptBlock:
             f"cipher {cipher_name!r} is unavailable or rejected a "
             f"{len(key)}-byte key"
         ) from exc
-    return cipher.encrypt_block
+    return cipher
+
+
+def _close_cipher(cipher: object) -> None:
+    close = getattr(cipher, "close", None)
+    if callable(close):
+        close()
+
+
+def _build_encrypt_block(cipher_name: str, key: bytes) -> EncryptBlock:
+    return _open_cipher(cipher_name, key).encrypt_block
 
 
 def _nonce_of(encrypt_block: EncryptBlock, iv: bytes, subkeys: tuple[bytes, bytes]) -> bytes:
@@ -210,11 +220,15 @@ def eax_seal(cipher_name: str, key: bytes, iv: bytes, plaintext: bytes) -> bytes
     Returns:
         Ciphertext with the 16-byte tag appended.
     """
-    encrypt_block = _build_encrypt_block(cipher_name, key)
-    subkeys = cmac_subkeys(encrypt_block)
-    nonce = _nonce_of(encrypt_block, iv, subkeys)
-    ct = ctr_crypt(encrypt_block, nonce, plaintext)
-    return ct + _tag_of(encrypt_block, nonce, ct, subkeys)
+    cipher = _open_cipher(cipher_name, key)
+    try:
+        encrypt_block = cipher.encrypt_block
+        subkeys = cmac_subkeys(encrypt_block)
+        nonce = _nonce_of(encrypt_block, iv, subkeys)
+        ct = ctr_crypt(encrypt_block, nonce, plaintext)
+        return ct + _tag_of(encrypt_block, nonce, ct, subkeys)
+    finally:
+        _close_cipher(cipher)
 
 
 def eax_open(cipher_name: str, key: bytes, iv: bytes, data: bytes) -> EaxResult:
@@ -240,16 +254,20 @@ def eax_open(cipher_name: str, key: bytes, iv: bytes, data: bytes) -> EaxResult:
         raise TruncatedFileError(
             f"EAX input is {len(data)} bytes; need at least {BLOCK_SIZE} for the tag"
         )
-    encrypt_block = _build_encrypt_block(cipher_name, key)
-    subkeys = cmac_subkeys(encrypt_block)
-    body, stored = data[:-BLOCK_SIZE], data[-BLOCK_SIZE:]
-    nonce = _nonce_of(encrypt_block, iv, subkeys)
-    pt = ctr_crypt(encrypt_block, nonce, body)
-    return EaxResult(
-        plaintext=pt,
-        computed_tag=_tag_of(encrypt_block, nonce, body, subkeys),
-        stored_tag=stored,
-    )
+    cipher = _open_cipher(cipher_name, key)
+    try:
+        encrypt_block = cipher.encrypt_block
+        subkeys = cmac_subkeys(encrypt_block)
+        body, stored = data[:-BLOCK_SIZE], data[-BLOCK_SIZE:]
+        nonce = _nonce_of(encrypt_block, iv, subkeys)
+        pt = ctr_crypt(encrypt_block, nonce, body)
+        return EaxResult(
+            plaintext=pt,
+            computed_tag=_tag_of(encrypt_block, nonce, body, subkeys),
+            stored_tag=stored,
+        )
+    finally:
+        _close_cipher(cipher)
 
 
 def eax_verify(cipher_name: str, key: bytes, iv: bytes, data: bytes) -> bool:
@@ -260,9 +278,13 @@ def eax_verify(cipher_name: str, key: bytes, iv: bytes, data: bytes) -> bool:
         raise TruncatedFileError(
             f"EAX input is {len(data)} bytes; need at least {BLOCK_SIZE} for the tag"
         )
-    encrypt_block = _build_encrypt_block(cipher_name, key)
-    subkeys = cmac_subkeys(encrypt_block)
-    body, stored = data[:-BLOCK_SIZE], data[-BLOCK_SIZE:]
-    nonce = _nonce_of(encrypt_block, iv, subkeys)
-    computed = _tag_of(encrypt_block, nonce, body, subkeys)
-    return hmac.compare_digest(computed, stored)
+    cipher = _open_cipher(cipher_name, key)
+    try:
+        encrypt_block = cipher.encrypt_block
+        subkeys = cmac_subkeys(encrypt_block)
+        body, stored = data[:-BLOCK_SIZE], data[-BLOCK_SIZE:]
+        nonce = _nonce_of(encrypt_block, iv, subkeys)
+        computed = _tag_of(encrypt_block, nonce, body, subkeys)
+        return hmac.compare_digest(computed, stored)
+    finally:
+        _close_cipher(cipher)

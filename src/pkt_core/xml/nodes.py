@@ -44,6 +44,28 @@ def _escape_attr_value(value: str, quote: bytes) -> bytes:
     return escaped.encode("utf-8")
 
 
+_ENTITY_MAP: Final[dict[str, str]] = {
+    "amp": "&",
+    "lt": "<",
+    "gt": ">",
+    "quot": '"',
+    "apos": "'",
+}
+
+
+def unescape_xml_text(text: str) -> str:
+    """Unescape the five standard XML character entities (``&amp;``, ``&lt;``, etc.)."""
+    if "&" not in text:
+        return text
+    return (
+        text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+    )
+
+
 @dataclass(slots=True)
 class XmlText:
     """Raw character data between tags.
@@ -64,7 +86,7 @@ class XmlText:
     @property
     def text(self) -> str:
         """Lossy UTF-8 view, for humans and tests. Not used on write."""
-        return self.data.decode("utf-8", "replace")
+        return unescape_xml_text(self.data.decode("utf-8", "replace"))
 
 
 @dataclass(slots=True)
@@ -103,7 +125,7 @@ class XmlElement:
                 v = raw_value
                 if len(v) >= 2 and v[0:1] in (b'"', b"'") and v[-1:] == v[0:1]:
                     v = v[1:-1]
-                return v.decode("utf-8", "replace")
+                return unescape_xml_text(v.decode("utf-8", "replace"))
         return None
 
     def set(self, name: str, value: str) -> None:
@@ -159,15 +181,26 @@ class XmlElement:
         self._dirty = True
 
     # -- serialization ----------------------------------------------------
-    def to_bytes(self) -> bytes:
-        """Emit this element.
+    def _serialize(self) -> tuple[bytes, bool]:
+        """Single-pass bottom-up serialisation returning ``(bytes, is_dirty)``.
 
-        Untouched elements return their original source span verbatim -- this is
-        the path that makes byte-exact round-trip free. Otherwise the element is
-        re-serialised from its (possibly edited) model.
+        Avoids the quadratic cost of checking ``self.dirty`` at every ancestor
+        before serialising children.
         """
-        if self.raw is not None and not self.dirty:
-            return self.raw
+        child_chunks: list[bytes] = []
+        any_child_dirty = False
+        for child in self.children:
+            if isinstance(child, XmlElement):
+                chunk, c_dirty = child._serialize()
+                child_chunks.append(chunk)
+                if c_dirty:
+                    any_child_dirty = True
+            else:
+                child_chunks.append(child.data)
+
+        is_dirty = self._dirty or any_child_dirty
+        if not is_dirty and self.raw is not None:
+            return self.raw, False
 
         out = bytearray(b"<")
         out += self.name
@@ -182,13 +215,27 @@ class XmlElement:
 
         if not self.children and self.raw is not None and self.raw.rstrip().endswith(b"/>"):
             out += b"/>"
-            return bytes(out)
+            return bytes(out), True
+
+        if not self.children and self.name in _HTML_VOID:
+            out += b">"
+            return bytes(out), True
 
         out += b">"
-        for child in self.children:
-            out += child.to_bytes()
+        for chunk in child_chunks:
+            out += chunk
         out += b"</" + self.name + b">"
-        return bytes(out)
+        return bytes(out), True
+
+    def to_bytes(self) -> bytes:
+        """Emit this element.
+
+        Untouched elements return their original source span verbatim -- this is
+        the path that makes byte-exact round-trip free. Otherwise the element is
+        re-serialised from its (possibly edited) model.
+        """
+        data, _ = self._serialize()
+        return data
 
 
 #: Either flavour of node.
@@ -245,9 +292,12 @@ class XmlDocument:
 
     def to_bytes(self) -> bytes:
         """Reproduce the source bytes, or re-serialise if something changed."""
-        if self._root is None or not self._root.dirty:
+        if self._root is None:
             return self.data
-        return self.prologue + self._root.to_bytes() + self.epilogue
+        body, is_dirty = self._root._serialize()
+        if not is_dirty:
+            return self.data
+        return self.prologue + body + self.epilogue
 
 
 # --------------------------------------------------------------------------
@@ -278,16 +328,18 @@ def _name_at(data: bytes, start: int) -> str:
 
 
 def _find_declaration_end(data: bytes, start: int) -> int:
-    """End of a ``<!...>`` construct begun at ``data[start] == '<'``.
+    """End of a ``<!...>`` or ``<?...?>`` construct begun at ``data[start] == '<'``.
 
-    CDATA sections and comments may legally contain ``>``, so scanning for the
-    first ``>`` is wrong and silently truncates the construct mid-content.
-    Packet Tracer stores activity instructions as CDATA HTML that is full of
-    ``>`` (``<![CDATA[<h3>Task</h3>...]]>``), so this has to be exact:
+    CDATA sections, comments, and processing instructions may legally contain
+    ``>``, so scanning for the first ``>`` is wrong and silently truncates the
+    construct mid-content. Packet Tracer stores activity instructions as CDATA
+    HTML that is full of ``>`` (``<![CDATA[<h3>Task</h3>...]]>``), so this has
+    to be exact:
 
-    * ``<![CDATA[ ... ]]>&`` ends at the first ``]]>``
+    * ``<![CDATA[ ... ]]>`` ends at the first ``]]>``
     * ``<!-- ... -->`` ends at the first ``-->``
-    * a DOCTYPE/PI ends at the first ``>`` outside a quoted value
+    * ``<? ... ?>`` ends at the first ``?>``
+    * a DOCTYPE ends at the first ``>`` outside a quoted value
     """
     if data[start : start + 9] == b"<![CDATA[":
         end = data.find(b"]]>", start + 9)
@@ -299,6 +351,11 @@ def _find_declaration_end(data: bytes, start: int) -> int:
         if end < 0:
             raise FormatError(f"unterminated comment at offset {start}")
         return end + 2
+    if data[start : start + 2] == b"<?":
+        end = data.find(b"?>", start + 2)
+        if end < 0:
+            raise FormatError(f"unterminated processing instruction at offset {start}")
+        return end + 1
     return _find_tag_end(data, start)
 
 
@@ -328,6 +385,7 @@ def _parse_attrs(raw: bytes) -> list[tuple[bytes, bytes, bytes]]:
     body = raw[1:]
     if body.endswith(b">"):
         body = body[:-1]
+    body = body.rstrip()
     if body.endswith(b"/"):
         body = body[:-1]
 
@@ -396,7 +454,7 @@ def _parse_element(data: bytes, pos: int, depth: int = 0) -> tuple[XmlElement, i
         raise FormatError(f"empty tag name at offset {pos}")
 
     self_closing = (
-        raw_start_tag.rstrip(b">").endswith(b"/")
+        raw_start_tag.rstrip(b">").rstrip().endswith(b"/")
         or name in _HTML_VOID  # case-sensitive: PT has an uppercase <LINK>
     )
     attrs = _parse_attrs(raw_start_tag)

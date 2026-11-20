@@ -23,8 +23,24 @@ from pkt_core import decode_bytes, encode_bytes
 CLASSIC_ZLIB = "zlib-ng" not in getattr(zlib, "ZLIB_RUNTIME_VERSION", "")
 
 REPO = Path(__file__).resolve().parent.parent
-INDEX = REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
-CORPUS = REPO.parent / "corpus" / "internet"
+INDEX = (
+    REPO / "corpus" / "CORPUS_INDEX.tsv"
+    if (REPO / "corpus" / "CORPUS_INDEX.tsv").exists()
+    else REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
+)
+CORPUS = next(
+    (
+        p
+        for p in (
+            REPO / "corpus" / "files",
+            REPO / "corpus" / "internet",
+            REPO.parent / "corpus" / "internet",
+            REPO.parent / "corpus" / "files",
+        )
+        if p.is_dir()
+    ),
+    REPO / "corpus" / "files",
+)
 
 pytestmark = pytest.mark.skipif(
     not (INDEX.exists() and CORPUS.exists()),

@@ -117,7 +117,9 @@ CIPHER_KEY_SIZES_FOR_TEST = [
     ("serpent192", 24),
     ("serpent256", 32),
     ("cast256", 16),
+    ("cast256", 20),
     ("cast256", 24),
+    ("cast256", 28),
     ("cast256", 32),
 ]
 
@@ -286,9 +288,11 @@ def _index_paths() -> list[Path]:
 
 
 def _corpus_dirs() -> list[Path]:
-    """Candidate corpus file directories; ``../corpus/internet`` first."""
+    """Candidate corpus file directories."""
     return [
+        REPO_ROOT / "corpus" / "files",
         REPO_ROOT.parent / "corpus" / "internet",
+        REPO_ROOT.parent / "corpus" / "files",
         CORPUS_FILES_DIR,
     ]
 

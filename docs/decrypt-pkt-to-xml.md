@@ -55,9 +55,10 @@ because the encoder reproduces the authentication tag rather than merely skippin
 verification:
 
 ```console
-$ pkt pack out/lab.xml -o rebuilt.pkt
+$ pkt pack out/lab.xml -o rebuilt.pkt --original lab.pkt
 xml   : 1,045,755 bytes  (root <PACKETTRACER5>)
 format: pkt
+stream: reused from lab.pkt (XML unchanged)
 wrote -> rebuilt.pkt  (81,474 bytes)
 ```
 
@@ -65,7 +66,7 @@ wrote -> rebuilt.pkt  (81,474 bytes)
 from pkt_core import decode, encode_bytes
 
 container = decode("lab.pkt")
-rebuilt = encode_bytes(container.xml, container.format_name)
+rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 assert rebuilt == open("lab.pkt", "rb").read()   # byte-for-byte
 ```
 

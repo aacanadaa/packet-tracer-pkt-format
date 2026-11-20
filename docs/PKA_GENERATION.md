@@ -60,23 +60,18 @@ The file opens as a **real graded activity**, not just a topology:
 | Grading output | *"Congratulations Guest! You completed the activity."* with tabs **Overall Feedback**, **Assessment Items**, **Connectivity Tests** |
 | Feedback text | our own `Lab complete - well done!` rendered |
 
-![Activity instructions in Packet Tracer](../../filedrop/pka_activity_instructions.png)
-![Grading results in Packet Tracer](../../filedrop/pka_activity_results.png)
-
-Sample artefacts are in the filedrop: `generated_scored_lab.pka`,
-`generated_scored_lab.spec.json`.
-
 ## What you still need to know
 
 Three rough edges, all found by doing this for the first time:
 
 1. **Device names can collide with the seed.** `tools/network_seed.xml`
    contributes 7 pre-existing devices (`SW1`, `R2`, `PC-A`, `PC-B`, `Server`, …).
-   Naming a generated device `SW1` or `R1` produces a duplicate, and both appear
-   in the file. Pick names outside that set, or strip the seed first.
+   `add_device()` raises `ValueError` on a collision by default; pass
+   `--prune-seed` to `make_scored_lab.py` (or call `lab.prune_seed_devices()`)
+   to strip the seed first, or pick names outside that set.
 
-2. **The seed devices are always present.** They appear in the workspace at the
-   left. For a clean lab you either accept them or start from a pruned seed.
+2. **The seed devices are present unless pruned.** Without `--prune-seed`, they
+   appear in the workspace at the left. Pass `--prune-seed` for a clean lab.
 
 3. **`--password` writes to `<ACTIVITY PASS=...>`,** not `<OPTIONS><PASS>`. Those
    are different fields; `Lab.activity_password` reads the right one.
@@ -92,7 +87,7 @@ lab = Lab.from_bytes(decode_bytes(raw).xml)
 
 lab.activity_password                 # -> 'hunter2'
 [s.tag for s in lab.activity_sections]
-# ['COMPARISONS', 'INITIALSETUP', 'LOCKINGTREE', 'INSTRUCTIONS']
+# ['COMPARISONS', 'INITIALSETUP', 'LOCKINGTREE', 'INSTRUCTIONS', 'VARIABLE_MANAGER', ...]
 
 lab.set_activity_password("newpass")
 open("out.pka", "wb").write(encode_bytes(lab.to_xml(), "pkt"))

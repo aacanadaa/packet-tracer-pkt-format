@@ -314,8 +314,8 @@ and its tail, showing the PT 4.1 trailing NUL:
 | Root element | Legacy container | Modern container |
 | --- | --- | --- |
 | `PACKETTRACER_ACTIVITY` | 64 | 0 |
-| `PACKETTRACER5_ACTIVITY` | **90** | **214** |
-| `PACKETTRACER5` | **39** | **505** |
+| `PACKETTRACER5_ACTIVITY` | **90** | **357** |
+| `PACKETTRACER5` | **39** | **508** |
 
 `PACKETTRACER5` and `PACKETTRACER5_ACTIVITY` appear in **both** containers.  The
 root element tells you the *document kind* (`.pkt` lab vs scored `.pka` activity) and

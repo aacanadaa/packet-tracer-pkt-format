@@ -58,7 +58,7 @@ import re
 import sys
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, NamedTuple
 
 from pkt_core.codec.container import decode, decode_bytes, encode
@@ -68,7 +68,7 @@ from pkt_core.resources import load_device_templates, load_network_seed
 # --------------------------------------------------------------------------- #
 # harvesting device / module templates from existing .pkt files
 # --------------------------------------------------------------------------- #
-def _iter_devices(xml):
+def _iter_devices(xml: bytes) -> Iterator[re.Match[bytes]]:
     return re.finditer(rb"<DEVICE>.*?</DEVICE>", xml, re.S)
 
 
@@ -79,7 +79,7 @@ _ENG_POWER_RE = re.compile(
 _ENG_NAME_RE = re.compile(rb"(<NAME[^>]*>.*?</NAME>)", re.S)
 
 
-def normalise_device_power(blk):
+def normalise_device_power(blk: bytes) -> tuple[bytes, bool]:
     """Force a harvested <DEVICE> block's <ENGINE><POWER> to "true".
 
     Harvested templates are taken verbatim from donor saves, so a device that
@@ -92,7 +92,7 @@ def normalise_device_power(blk):
     """
     state = {"off": False}
 
-    def repl(m):
+    def repl(m: re.Match[bytes]) -> bytes:
         if m.group(2).strip().lower() != b"true":
             state["off"] = True
         return m.group(1) + b"<POWER>true</POWER>"
@@ -113,8 +113,8 @@ def load_templates(
     With no argument this returns the library bundled in the package, so a plain
     ``pip install`` can build labs without a checkout. Pass a path to read another
     library instead — the format is the gzip+base64 JSON used by
-    ``tools/device_templates.json``, which is what ``tools/harvest_library.py``
-    writes when extending model coverage.
+    ``src/pkt_core/data/device_templates.json``, which is what
+    ``tools/harvest_library.py`` writes when extending model coverage.
 
     Returns ``(models, modules)``: ``models`` maps a model name to its ``<DEVICE>``
     element bytes, ``modules`` maps a module name to its ``<SLOT>`` element text.
@@ -137,7 +137,10 @@ def load_templates(
             {k: dec(v).decode("utf-8") for k, v in t.get("modules", {}).items()})
 
 
-def harvest_models(saves_dir, wanted=None):
+def harvest_models(
+    saves_dir: str | os.PathLike[str],
+    wanted: set[str] | None = None,
+) -> dict[str, bytes]:
     """Return {model: <DEVICE> bytes} taking the first instance of each model.
 
     Device-level <ENGINE><POWER> is normalised to "true" on the way in (see
@@ -146,7 +149,7 @@ def harvest_models(saves_dir, wanted=None):
     Models whose donor block was off/absent are reported on stderr so the
     artefact is recorded rather than silently shipped."""
     import glob
-    out = {}
+    out: dict[str, bytes] = {}
     files = sorted(glob.glob(os.path.join(saves_dir, "**", "*.pkt"), recursive=True),
                    key=os.path.getsize)
     for f in files:
@@ -171,26 +174,31 @@ def harvest_models(saves_dir, wanted=None):
     return out
 
 
-def harvest_modules(saves_dir, wanted):
-    """Return {module_model: <SLOT> xml bytes} for modules found in devices."""
+def harvest_modules(
+    saves_dir: str | os.PathLike[str],
+    wanted: set[str] | None = None,
+) -> dict[str, str]:
+    """Return {module_model: <SLOT> xml str} for modules found in devices."""
     import glob
-    out = {}
+    out: dict[str, str] = {}
     for f in sorted(glob.glob(os.path.join(saves_dir, "**", "*.pkt"), recursive=True),
                    key=os.path.getsize):
-        if wanted <= set(out):
+        if wanted is not None and wanted <= set(out):
             break
         try:
-            xml = decode(f, "pkt", verify_tag=False).xml.decode("utf-8", "replace")
+            xml = decode(f, "pkt", verify_tag=False).xml
+            root = ET.fromstring(xml)
         except Exception:
             continue
-        for model in set(re.findall(r"<MODEL>([^<]+)</MODEL>", xml)) & wanted:
-            if model in out:
+        for slot_el in root.iter("SLOT"):
+            mod = slot_el.find("MODULE")
+            if mod is None:
                 continue
-            i = xml.find("<MODEL>%s</MODEL>" % model)
-            a = xml.rfind("<SLOT>", 0, i)
-            b = xml.find("</SLOT>", i) + len("</SLOT>")
-            if a >= 0 and b > a:
-                out[model] = xml[a:b]
+            model = (mod.findtext("MODEL") or "").strip()
+            if not model:
+                continue
+            if (wanted is None or model in wanted) and model not in out:
+                out[model] = ET.tostring(slot_el, encoding="unicode").strip()
     return out
 
 
@@ -482,8 +490,10 @@ class Layout:
         and merely occupies space for later placements."""
         k = kind or kind_for_model(model)
         w, h = device_box(k, name, model)
-        p = Placement(name, model, k, "", int(round(x)), int(round(y)),
-                      w, h, int(round(x)) // self.page_width)
+        ix = int(round(x))
+        iy = int(round(y))
+        page = max(0, (ix - self.x_min) // self.page_width)
+        p = Placement(name, model, k, "", ix, iy, w, h, page)
         self._placed.append(p)
         return p
 
@@ -499,8 +509,12 @@ class Layout:
         page = 0
         if group in self._anchors:
             ax, ay = self._anchors[group]
+            page = max(0, (ax - self.x_min) // self.page_width)
             cy = min(max(ay, self.y_min + _MAX_HALF_H), self.y_max - _MAX_HALF_H)
-            left = min(max(ax - w // 2, self.x_min), self.x_max - w)
+            left = min(
+                max(ax - w // 2, self._page_x_min(page)),
+                self._page_x_max(page) - w,
+            )
         else:
             cy = self.y_min + _MAX_HALF_H
             if self._placed:
@@ -615,6 +629,9 @@ def _det_uuid(*parts: object) -> str:
     return str(uuid.UUID(bytes=bytes(b)))
 
 
+_SERIAL_PORT_TYPES: frozenset[str] = frozenset({"eSmartSerial", "eSerial"})
+
+
 class Lab:
     def __init__(
         self,
@@ -635,54 +652,63 @@ class Lab:
             if modules is None:
                 modules = bundled_modules
         self.base = ET.fromstring(xml)
-        self.net = self.base.find("NETWORK")
-        self.devs = self.net.find("DEVICES")
-        self.models = dict(models)
-        self.modules = dict(modules or {})
-        self._pw = self.base.find("PHYSICALWORKSPACE")
-        self._wsroot = self._pw.find("NODE") if self._pw is not None else None
+        net = self.base.find("NETWORK")
+        devs = net.find("DEVICES") if net is not None else None
+        if net is None or devs is None:
+            raise ValueError("seed has no <NETWORK>/<DEVICES> hierarchy")
+        self.net: ET.Element = net
+        self.devs: ET.Element = devs
+        self.models: dict[str, bytes] = dict(models)
+        self.modules: dict[str, str] = dict(modules or {})
+        self._pw: ET.Element | None = self.base.find("PHYSICALWORKSPACE")
+        self._wsroot: ET.Element | None = self._pw.find("NODE") if self._pw is not None else None
+        self._CID: str | None = None
 
         existing = self.devs.findall("DEVICE")
         # donor <PHYSICAL_CPUR> (structure template) from the seed's first device
-        self._donor_cpur = None
-        donor_pp = donor_cid = None
+        self._donor_cpur: ET.Element | None = None
+        donor_pp: str | None = None
+        donor_cid: str | None = None
         if existing:
             dc = existing[0].find("WORKSPACE/PHYSICAL_CPUR")
             if dc is not None:
                 self._donor_cpur = copy.deepcopy(dc)
                 donor_pp = dc.findtext("PARENT_PATH")
                 donor_cid = dc.findtext("CONTAINER_ID")
-        self._PP = donor_pp or (self._pw.findtext("HOMERACK") if self._pw is not None else None)
-        self._rack = self._find_container(donor_cid)
-        if self._rack is None or not self._PP or not self._CID:
+        self._PP: str | None = donor_pp or (
+            self._pw.findtext("HOMERACK") if self._pw is not None else None
+        )
+        rack, cid = self._find_container(donor_cid)
+        self._CID = cid
+        if rack is None or not self._PP or not self._CID:
             raise ValueError("seed has no usable physical workspace (need HOMERACK + a Rack container)")
+        self._rack: ET.Element = rack
 
-        self._initial_devs = list(existing)
-        self._n = 0
-        self._pos = 4
-        self._mac = 0x2000
-        self._els = {}
+        self._initial_devs: list[ET.Element] = list(existing)
+        self._n: int = 0
+        self._pos: int = 4
+        self._mac: int = 0x2000
+        self._els: dict[str, ET.Element] = {}
 
     # -- physical workspace helpers ---------------------------------------- #
-    def _find_container(self, cid):
-        """Find the container NODE (the Rack) and set self._CID to its UUID."""
+    def _find_container(self, cid: str | None) -> tuple[ET.Element | None, str | None]:
+        """Find the container NODE (the Rack) and return (rack_element, cid)."""
         root = self._wsroot
         if root is None:
-            return None
-        rack = None
+            return None, None
+        rack: ET.Element | None = None
         for n in root.iter("NODE"):
             u = n.findtext("UUID_STR")
             if cid and u == cid:
-                self._CID = cid
-                return n
+                return n, cid
             if rack is None and (n.findtext("TYPE") == "4"
                                  or "rack" in (n.findtext("NAME") or "").lower()):
                 rack = n
         if rack is not None:
-            self._CID = rack.findtext("UUID_STR")
-        return rack
+            return rack, rack.findtext("UUID_STR")
+        return None, None
 
-    def _add_leaf(self, name, leaf, x=0):
+    def _add_leaf(self, name: str, leaf: str, x: int = 0) -> None:
         from pkt_core.xml.nodes import escape_xml_text
 
         ch = self._rack.find("CHILDREN")
@@ -703,7 +729,7 @@ class Lab:
             ))
         ch.append(el)
 
-    def _make_cpur(self, x, leaf):
+    def _make_cpur(self, x: int, leaf: str) -> str:
         """Return a <PHYSICAL_CPUR> string placed in the rack at position x.
 
         ``leaf`` is the physical leaf's UUID; ORIGINAL_DEVICE_UUID is derived
@@ -716,7 +742,7 @@ class Lab:
             "<ICP_CONTAINER_SCENE_Y>0</ICP_CONTAINER_SCENE_Y>"
             "<ORIGINAL_DEVICE_UUID></ORIGINAL_DEVICE_UUID></PHYSICAL_CPUR>")
 
-        def set_(tag, val):
+        def set_(tag: str, val: str | None) -> None:
             e = c.find(tag)
             if e is None:
                 e = ET.SubElement(c, tag)
@@ -814,6 +840,8 @@ class Lab:
             for e in el.iter(tag):
                 e.text = self._next_mac()
         eng = el.find("ENGINE")
+        if eng is None:
+            eng = ET.SubElement(el, "ENGINE")
         for e in list(eng.findall("SAVE_REF_ID")):
             eng.remove(e)
         sid = "save-ref-id:%d" % (9_900_000_000_000_000_000 + i)
@@ -842,12 +870,13 @@ class Lab:
                 ET.SubElement(rc, "LINE").text = L
         if pc_ip:
             port = el.find(".//PORT")
-            for tag, val in (("IP", pc_ip[0]), ("SUBNET", pc_ip[1]),
-                             ("PORT_GATEWAY", pc_ip[2]), ("PORT_DHCP_ENABLE", "false")):
-                e = port.find(tag)
-                if e is None:
-                    e = ET.SubElement(port, tag)
-                e.text = val
+            if port is not None:
+                for tag, val in (("IP", pc_ip[0]), ("SUBNET", pc_ip[1]),
+                                 ("PORT_GATEWAY", pc_ip[2]), ("PORT_DHCP_ENABLE", "false")):
+                    pe = port.find(tag)
+                    if pe is None:
+                        pe = ET.SubElement(port, tag)
+                    pe.text = val
             # PT reads an end device's default gateway from <ENGINE><GATEWAY>,
             # not from <PORT><PORT_GATEWAY>.  Writing only the port leaves the
             # harvested template's gateway in place, so `ipconfig` shows the
@@ -863,7 +892,14 @@ class Lab:
             self.install_module(sid, install, bay, slot=slot)
         return sid
 
-    def install_module(self, dev_id, module_model, bay=None, *, slot=None):
+    def install_module(
+        self,
+        dev_id: str,
+        module_model: str,
+        bay: int | None = None,
+        *,
+        slot: int | None = None,
+    ) -> None:
         """Install a module into one of a device's eInterfaceCard bays.
 
         Two ways to say where, and they are not the same thing:
@@ -885,6 +921,8 @@ class Lab:
         """
         el = self._els[dev_id]
         eng = el.find("ENGINE")
+        if eng is None:
+            raise ValueError(f"{dev_id}: device has no <ENGINE>")
         # every eInterfaceCard bay, occupied or not, in document order
         all_bays = [sl for sl in eng.iter("SLOT")
                     if sl.findtext("TYPE") == "eInterfaceCard"]
@@ -918,21 +956,53 @@ class Lab:
         for tag in ("MACADDRESS", "BIA"):
             for e in mod.iter(tag):
                 e.text = self._next_mac()
+        for pt in mod.iter("PORT"):
+            for dirty_tag in ("IP", "SUBNET", "PORT_GATEWAY", "PORT_DNS"):
+                de = pt.find(dirty_tag)
+                if de is not None and de.text:
+                    de.text = ""
         for c in list(target):
             target.remove(c)
         for c in list(mod):
             target.append(c)
 
-    def _append_config(self, dev_id, lines):
+    def _append_config(self, dev_id: str, lines: Sequence[str]) -> None:
         """Append IOS config lines to a device, before a trailing `end` if present."""
         el = self._els.get(dev_id)
         if el is None or not lines:
             return
         eng = el.find("ENGINE")
+        if eng is None:
+            return
         rc = eng.find("RUNNINGCONFIG")
         if rc is None:
             rc = ET.SubElement(eng, "RUNNINGCONFIG")
         kids = list(rc)
+        # If lines start with `interface <name>`, check if that interface block
+        # already exists so we don't emit a duplicate interface stanza.
+        if (
+            len(lines) >= 2
+            and lines[0].strip().lower().startswith("interface ")
+        ):
+            want_iface = lines[0].strip().lower()
+            cmd_line = lines[1]
+            cmd_prefix = cmd_line.strip().split()[0].lower() if cmd_line.strip() else ""
+            for i, k in enumerate(kids):
+                if (k.text or "").strip().lower() == want_iface:
+                    insert_at = i + 1
+                    while insert_at < len(kids):
+                        txt = (kids[insert_at].text or "")
+                        if not txt.startswith(" "):
+                            break
+                        if cmd_prefix and txt.strip().lower().startswith(cmd_prefix):
+                            kids[insert_at].text = cmd_line
+                            return
+                        insert_at += 1
+                    for off, l in enumerate(lines[1:]):
+                        e = ET.Element("LINE")
+                        e.text = l
+                        rc.insert(insert_at + off, e)
+                    return
         idx = len(kids)
         if kids and (kids[-1].text or "").strip().lower() == "end":
             idx = len(kids) - 1
@@ -941,16 +1011,17 @@ class Lab:
             e.text = l
             rc.insert(idx + off, e)
 
-    def _set_serial_port(self, dev_id, port_name, rate):
-        """Set CLOCKRATE / CLOCKRATEFLAG=true / POWER=true on a serial port.
-        Both ends of a serial link carry POWER=true and CLOCKRATEFLAG=true; only the
-        DCE end carries a non-zero CLOCKRATE.  Without these the line stays down
-        (cable renders red) even if the IOS config is correct."""
+    def _set_serial_port(self, dev_id: str, port_name: str, rate: int) -> None:
+        """Set CLOCKRATE / CLOCKRATEFLAG / POWER=true on a serial port.
+
+        Both ends of a serial link carry POWER=true; the DCE end (rate > 0)
+        carries a non-zero CLOCKRATE and CLOCKRATEFLAG=true, while the DTE end
+        (rate == 0) carries CLOCKRATE=0 and CLOCKRATEFLAG=false."""
         el = self._els.get(dev_id)
         if el is None:
             return
         eng = el.find("ENGINE")
-        p = None
+        p: ET.Element | None = None
         m3 = re.search(r"(\d+)/(\d+)/(\d+)$", port_name)
         if m3 and eng is not None:
             slot_idx = int(m3.group(2))
@@ -959,12 +1030,29 @@ class Lab:
             if 0 <= slot_idx < len(bays):
                 bay_ports = [
                     pt for pt in bays[slot_idx].iter("PORT")
-                    if pt.findtext("TYPE") == "eSmartSerial"
+                    if (pt.findtext("TYPE") or "") in _SERIAL_PORT_TYPES
                 ]
                 if 0 <= port_idx < len(bay_ports):
                     p = bay_ports[port_idx]
+        if p is None and eng is not None:
+            m2 = re.search(r"(\d+)/(\d+)$", port_name)
+            if m2:
+                slot_idx = int(m2.group(1))
+                port_idx = int(m2.group(2))
+                top_mod = eng.find("MODULE")
+                top_slots = top_mod.findall("SLOT") if top_mod is not None else []
+                if 0 <= slot_idx < len(top_slots):
+                    slot_ports = [
+                        pt for pt in top_slots[slot_idx].iter("PORT")
+                        if (pt.findtext("TYPE") or "") in _SERIAL_PORT_TYPES
+                    ]
+                    if 0 <= port_idx < len(slot_ports):
+                        p = slot_ports[port_idx]
         if p is None:
-            ports = [pt for pt in el.iter("PORT") if pt.findtext("TYPE") == "eSmartSerial"]
+            ports = [
+                pt for pt in el.iter("PORT")
+                if (pt.findtext("TYPE") or "") in _SERIAL_PORT_TYPES
+            ]
             if not ports:
                 return
             try:
@@ -974,13 +1062,24 @@ class Lab:
             if idx < 0 or idx >= len(ports):
                 idx = 0
             p = ports[idx]
-        for tag, val in (("CLOCKRATE", str(rate)), ("CLOCKRATEFLAG", "true"), ("POWER", "true")):
+        flag = "true" if rate > 0 else "false"
+        for tag, val in (("CLOCKRATE", str(rate)), ("CLOCKRATEFLAG", flag), ("POWER", "true")):
             e = p.find(tag)
             if e is None:
                 e = ET.SubElement(p, tag)
             e.text = val
 
-    def link(self, a_id, a_port, b_id, b_port, kind="copper", dce=None, dce_port=None, clock=128000):
+    def link(
+        self,
+        a_id: str,
+        a_port: str,
+        b_id: str,
+        b_port: str,
+        kind: str = "copper",
+        dce: str | None = None,
+        dce_port: str | None = None,
+        clock: int = 128000,
+    ) -> None:
         """Add a cable.  kind='copper' (eCopper/eStraightThrough) or
         'serial' (eSerial; pass dce=<device id of the DCE end>).  For a serial
         link the DCE interface is given a `clock rate` automatically (without it
@@ -1010,15 +1109,25 @@ class Lab:
                       ("FROM_PORT_MEM_ADDR", "3"), ("TO_PORT_MEM_ADDR", "4"),
                       ("GEO_VIEW_COLOR", "#6ba72e"), ("IS_MANAGED_IN_RACK_VIEW", "false"),
                       ("TYPE", "eStraightThrough")]
-        L = ET.SubElement(self.net.find("LINKS"), "LINK")
+        links_el = self.net.find("LINKS")
+        if links_el is None:
+            links_el = ET.SubElement(self.net, "LINKS")
+        L = ET.SubElement(links_el, "LINK")
         ET.SubElement(L, "TYPE").text = link_type
         cab = ET.SubElement(L, "CABLE")
         for t, v in fields:
             ET.SubElement(cab, t).text = v
 
-    def set_os(self, dev_id, image=None, file_name=None):
+    def set_os(
+        self,
+        dev_id: str,
+        image: str | None = None,
+        file_name: str | None = None,
+    ) -> None:
         """Set a device's OS image / boot file (`<OS_IMAGE>`, `<OS_FILE_NAME>`)."""
         eng = self._els[dev_id].find("ENGINE")
+        if eng is None:
+            return
         for tag, val in (("OS_IMAGE", image), ("OS_FILE_NAME", file_name)):
             if val is None:
                 continue
@@ -1027,58 +1136,82 @@ class Lab:
                 e = ET.SubElement(eng, tag)
             e.text = val
 
-    def set_config_register(self, dev_id, value):
+    def set_config_register(self, dev_id: str, value: str | int) -> None:
         eng = self._els[dev_id].find("ENGINE")
+        if eng is None:
+            return
         e = eng.find("CONFIG_REGISTER")
         if e is None:
             e = ET.SubElement(eng, "CONFIG_REGISTER")
         e.text = str(value)
 
-    def set_wireless(self, dev_id, ssid=None, auth_type=None, encrypt_type=None,
-                     password=None, userid=None, channel=None, radio_band=None):
-        """Set the SSID / security on every wireless port of a device (AP, home
+    def set_wireless(
+        self,
+        dev_id: str,
+        ssid: str | None = None,
+        auth_type: str | int | None = None,
+        encrypt_type: str | int | None = None,
+        password: str | None = None,
+        userid: str | None = None,
+        channel: str | int | None = None,
+        radio_band: str | int | None = None,
+    ) -> int:
+        """Set the SSID / security on every wireless block of a device (AP, home
         router, laptop, phone, ...).  Wireless devices associate by SSID at runtime
         (no `<LINK>` element is created).  `auth_type`/`encrypt_type` are the raw
         PT enum values (e.g. 0=open, WPA/WPA2 variants differ per device)."""
         el = self._els[dev_id]
         n = 0
-        for p in el.iter("PORT"):
+        for p in el.iter():
             if p.find("SSID") is None:
                 continue
             n += 1
-            def setp(tag, val):
-                e = p.find(tag)
+
+            def setp(tag: str, val: str | int, block: ET.Element = p) -> None:
+                e = block.find(tag)
                 if e is None:
-                    e = ET.SubElement(p, tag)
+                    e = ET.SubElement(block, tag)
                 e.text = str(val)
+
             if ssid is not None:
                 setp("SSID", ssid)
             if auth_type is not None:
                 setp("AUTHEN_TYPE", auth_type)
             if encrypt_type is not None:
                 setp("ENCRYPT_TYPE", encrypt_type)
-            if password is not None and p.find("WPA_EAP_PASSWORD") is not None:
-                setp("WPA_EAP_PASSWORD", password)
+            if password is not None:
+                for ptag in ("WPA_EAP_PASSWORD", "PSK_PASS_PHRASE", "KEY_VALUE", "PASSWORD"):
+                    if p.find(ptag) is not None:
+                        setp(ptag, password)
             if userid is not None and p.find("WPA_EAP_USERID") is not None:
                 setp("WPA_EAP_USERID", userid)
             if channel is not None:
-                setp("CHANNEL", channel)
+                if p.find("STANDARD_CHANNEL") is not None:
+                    setp("STANDARD_CHANNEL", channel)
+                else:
+                    setp("CHANNEL", channel)
             if radio_band is not None:
                 setp("RADIO_BAND", radio_band)
+        if channel is not None:
+            for port in el.iter("PORT"):
+                if "Wireless" in (port.findtext("TYPE") or ""):
+                    ch_el = port.find("CHANNEL")
+                    if ch_el is not None:
+                        ch_el.text = str(channel)
         return n
 
-    def initial_id(self, index=0):
+    def initial_id(self, index: int = 0) -> str | None:
         eng = self._initial_devs[index].find("ENGINE")
-        sid = eng.find("SAVE_REF_ID")
+        sid = eng.find("SAVE_REF_ID") if eng is not None else None
         return sid.text if sid is not None else None
 
-    def drop_initial(self):
+    def drop_initial(self) -> None:
         """Remove the seed's own devices, their workspace leaves, and any links that
         referenced them (dangling links / orphan leaves corrupt the file)."""
-        dead = set()
+        dead: set[str] = set()
         for el in self._initial_devs:
             eng = el.find("ENGINE")
-            sid = eng.findtext("SAVE_REF_ID")
+            sid = eng.findtext("SAVE_REF_ID") if eng is not None else None
             if sid:
                 dead.add(sid)
             ph = el.findtext("WORKSPACE/PHYSICAL")
@@ -1115,5 +1248,5 @@ class Lab:
 
     drop_seed_devices = prune_seed_devices
 
-    def save(self, path):
-        encode(path, ET.tostring(self.base, encoding="unicode").encode("utf-8"), "pkt")
+    def save(self, path: str | os.PathLike[str]) -> None:
+        encode(os.fspath(path), ET.tostring(self.base, encoding="unicode").encode("utf-8"), "pkt")

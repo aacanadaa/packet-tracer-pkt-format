@@ -37,14 +37,14 @@ import json
 import os
 import sys
 
+import xml.etree.ElementTree as ET
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-import build_configured_lab as B   # noqa: E402
 import activity                    # noqa: E402
 import lab_api                     # noqa: E402
 import scoring                     # noqa: E402
-import pt9                         # noqa: E402
 
 DEFAULT_SPEC = {
     "devices": [
@@ -79,7 +79,9 @@ def build_network(seed, models, modules, spec, path, configured, prune_seed=Fals
         lab.link(ids[l["a"]], l["aport"], ids[l["b"]], l["bport"],
                  kind=l.get("kind", "copper"),
                  dce=(ids.get(l["dce"]) if l.get("dce") else None))
-    lab.save(path)
+    if path is not None:
+        lab.save(path)
+    return ET.tostring(lab.base, encoding="unicode")
 
 
 def main():
@@ -95,17 +97,18 @@ def main():
                     help="overall completion feedback message")
     a = ap.parse_args()
 
-    spec = json.load(open(a.spec)) if a.spec else DEFAULT_SPEC
-    models, modules = lab_api.load_templates(os.path.join(HERE, "device_templates.json"))
+    if a.spec:
+        with open(a.spec) as fh:
+            spec = json.load(fh)
+    else:
+        spec = DEFAULT_SPEC
+    models, modules = lab_api.load_templates()
     shapes = scoring.load_shapes(os.path.join(HERE, "device_shapes.json"))
-    seed = os.path.join(HERE, "network_seed.xml")
 
-    build_network(seed, models, modules, spec, "/tmp/_pt9_initial.pkt", False,
-                  prune_seed=a.prune_seed)
-    build_network(seed, models, modules, spec, "/tmp/_pt9_answer.pkt", True,
-                  prune_seed=a.prune_seed)
-    initial = pt9.decode("/tmp/_pt9_initial.pkt", "pkt").decode("utf-8")
-    answer = pt9.decode("/tmp/_pt9_answer.pkt", "pkt").decode("utf-8")
+    initial = build_network(None, models, modules, spec, None, False,
+                            prune_seed=a.prune_seed)
+    answer = build_network(None, models, modules, spec, None, True,
+                           prune_seed=a.prune_seed)
 
     vals = scoring.derive_values(answer)
     score_spec = [{"name": d["name"], "model": d["model"], "overrides": vals.get(d["name"], {})}

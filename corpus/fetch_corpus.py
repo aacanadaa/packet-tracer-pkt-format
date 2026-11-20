@@ -131,7 +131,7 @@ def _download_tarball(up: Upstream, dest: Path) -> bool:
         return False
     try:
         with tarfile.open(fileobj=__import__("io").BytesIO(data), mode="r:*") as tf:
-            tf.extractall(dest)
+            tf.extractall(dest, filter="data")
     except tarfile.TarError as exc:
         print(f"  ! {up.source_tag}: bad tarball ({exc})", file=sys.stderr)
         return False

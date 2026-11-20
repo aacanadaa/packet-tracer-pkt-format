@@ -157,8 +157,7 @@ def server_config(name: str, domain: str, services: list[str]) -> list[str]:
 # topology
 # --------------------------------------------------------------------------
 def build(out_path: Path, clients_per_access: int, prune_seed: bool = False) -> int:
-    models, modules = lab_api.load_templates("tools/device_templates.json")
-    lab = lab_api.Lab("tools/network_seed.xml", models, modules)
+    lab = lab_api.Lab()
     if prune_seed:
         lab.prune_seed_devices()
 
@@ -177,13 +176,12 @@ def build(out_path: Path, clients_per_access: int, prune_seed: bool = False) -> 
         ("GigabitEthernet0/0", "10.0.0.1", "255.255.255.252"),
         ("GigabitEthernet0/1", "10.0.1.1", "255.255.255.252"),
         ("GigabitEthernet0/2", "10.0.2.1", "255.255.255.252"),
-        ("GigabitEthernet0/3", "10.0.3.1", "255.255.255.252"),
         ("Serial0/0/0", "10.255.0.1", "255.255.255.252"),
     ]
     add("core1", "2911", "CORE-R1", 700, 120,
         ios_config=router_config(
             "CORE-R1", core_ifaces,
-            ["10.0.0.0", "10.0.1.0", "10.0.2.0", "10.0.3.0", "10.255.0.0"],
+            ["10.0.0.0", "10.0.1.0", "10.0.2.0", "10.255.0.0"],
             ["!", "router ospf 1", " passive-interface default",
              " no passive-interface GigabitEthernet0/0",
              " no passive-interface Serial0/0/0", "!"]))

@@ -146,8 +146,8 @@ $ python3 -c "
 from pkt_core import decode_bytes, encode_bytes
 raw = open('corpus/samples/sample_lab.pkt','rb').read()
 c = decode_bytes(raw)
-assert encode_bytes(c.xml, c.format_name) == raw
-open('/tmp/repacked.pkt','wb').write(encode_bytes(c.xml, c.format_name))
+assert encode_bytes(c.xml, c.format_name, original=c) == raw
+open('/tmp/repacked.pkt','wb').write(encode_bytes(c.xml, c.format_name, original=c))
 "
 ```
 

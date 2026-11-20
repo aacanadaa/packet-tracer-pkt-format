@@ -38,7 +38,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-TOOLKIT = Path(__import__("os").environ.get("PKT_TOOLKIT", "/home/saoria/PacketTracerReverse/packet-tracer-pkt-format"))
+
+
+def _find_toolkit() -> Path:
+    env = __import__("os").environ.get("PKT_TOOLKIT")
+    if env:
+        return Path(env)
+    for cand in ROOT.parents:
+        if (cand / "tools" / "lab_api.py").is_file() and (cand / "src" / "pkt_core").is_dir():
+            return cand
+    raise SystemExit("error: cannot find the pkt-core toolkit; set PKT_TOOLKIT")
+
+
+TOOLKIT = _find_toolkit()
 sys.path.insert(0, str(TOOLKIT))
 sys.path.insert(0, str(TOOLKIT / "tools"))
 sys.path.insert(0, str(ROOT))

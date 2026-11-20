@@ -29,7 +29,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import pt9  # noqa: E402
+from pkt_core.codec.container import decode, decode_bytes, encode  # noqa: E402
 
 ETH = re.compile(r"^(FastEthernet|GigabitEthernet|Ethernet)\d")
 
@@ -42,7 +42,7 @@ def harvest(saves_dir):
                    key=os.path.getsize)
     for f in files:
         try:
-            xml = pt9.decode(f, "pkt", verify_tag=True)
+            xml = decode(f, "pkt", verify_tag=True).xml
         except Exception:
             continue
         ref_block.clear(); ref_model.clear()
@@ -70,8 +70,9 @@ def harvest(saves_dir):
 
 
 def build(seed_pkt, models, ports, out_pkt, core_model="2960-24TT"):
-    seed = open(seed_pkt, "rb").read()
-    seed_xml = pt9.decode_bytes(seed, "pkt") if seed_pkt.lower().endswith(".pkt") else seed
+    with open(seed_pkt, "rb") as fh:
+        seed = fh.read()
+    seed_xml = decode_bytes(seed, "pkt").xml if seed_pkt.lower().endswith(".pkt") else seed
     base = ET.fromstring(seed_xml)
     net = base.find("NETWORK")
     devs = net.find("DEVICES")
@@ -152,7 +153,7 @@ def build(seed_pkt, models, ports, out_pkt, core_model="2960-24TT"):
     for k in range(ncore - 1):
         add_link(cores[k][0], "GigabitEthernet0/1", cores[k][1], cores[k + 1][0], "GigabitEthernet0/1", cores[k + 1][1])
 
-    pt9.encode(out_pkt, ET.tostring(base, encoding="unicode").encode("utf-8"), "pkt")
+    encode(out_pkt, ET.tostring(base, encoding="unicode").encode("utf-8"), "pkt")
     return len(devs.findall("DEVICE")), len(links.findall("LINK"))
 
 

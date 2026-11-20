@@ -31,6 +31,8 @@ file        : lab.pkt
 size        : 81,474 bytes
 format      : pkt
 cipher      : twofish
+key byte    : 0x89  (repeated x16)
+iv byte     : 0x10  (repeated x16)
 root tag    : PACKETTRACER5
 kind        : network lab (.pkt)
 xml bytes   : 1,045,755
@@ -40,9 +42,12 @@ Then unpack it:
 
 ```console
 $ pkt unpack lab.pkt -o out/
+xml      -> out/lab.xml  (1,045,755 bytes)
 meta     -> out/lab.container.json
 configs  -> out/configs/  (3 device configs)
 topology -> out/topology.dot, out/topology.json
+kind     : network lab
+network  : 7 devices, 6 links
 ```
 
 You get the inner XML (`out/lab.xml`), one IOS running-config per device

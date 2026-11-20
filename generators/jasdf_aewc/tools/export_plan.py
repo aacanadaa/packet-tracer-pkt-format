@@ -56,6 +56,7 @@ def main(src="out/JASDF_AEWC_JADGE.pkt", sfx=""):
         te = d.find("ENGINE/TYPE")
         model = (te.get("model") if te is not None else "") or "?"
         site = ""
+        cur: str | None = None
         for line in (l.text or "" for l in d.findall("ENGINE/RUNNINGCONFIG/LINE")):
             m = re.match(r"^interface (\S+)$", line)
             if m:
@@ -63,7 +64,7 @@ def main(src="out/JASDF_AEWC_JADGE.pkt", sfx=""):
                 continue
             m = re.match(r"^\s+ip address (\d+\.\d+\.\d+\.\d+) (\d+\.\d+\.\d+\.\d+)",
                          line)
-            if m and "cur" in dir():
+            if m and cur is not None:
                 rows.append((name, model, cur, m.group(1), m.group(2), site))
         # end-device NIC
         for p in d.iter("PORT"):

@@ -4,12 +4,39 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Version numbering note: the `SKILL.md v1.2.0` and `v1.3.0` releases in this
-repository are revisions of the agent skill document, not of the library. Library
-releases are tagged `sdk-v*` and published to PyPI as
-[`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/).
+Version numbering note: starting with **`2.0.0`**, the repository, PyPI package
+([`packet-tracer-pkt-format`](https://pypi.org/project/packet-tracer-pkt-format/)),
+CLI (`pkt --version`), optional Rust extension (`pkt_core_native`), and GHCR
+container images are unified under standard `v*` tags (`v2.0.0`). Earlier
+`0.3.0`–`0.4.3` library releases were tagged `sdk-v0.*` because `v1.2.0` and
+`v1.3.0` had previously been used for revisions of `SKILL.md`.
 
-## [Unreleased]
+## [2.0.0] — 2026-11-19
+
+### Changed
+
+- **Unified `2.0.0` release numbering (`v2.0.0`).** `packet-tracer-pkt-format`,
+  `pkt_core.__version__`, `pkt_core_native`, GitHub Releases, and GHCR container
+  tags now share a single `2.0.0` version (`v2.0.0`), replacing the split
+  `sdk-v0.4.x` / `v1.x` tag scheme. Promoted package classifier to
+  `Development Status :: 5 - Production/Stable`.
+- **Full `mypy --strict` and 90%+ coverage enforcement across `pkt_core.builder`.**
+  Annotated every method and helper in `src/pkt_core/builder/lab.py`, removed
+  the `pkt_core.builder.*` `mypy` override and coverage `omit` in
+  `pyproject.toml`, and raised total package branch coverage above 92%.
+- Docs no longer claim fresh compression is byte-exact everywhere: unchanged
+  files always round-trip exactly; freshly compressed output is byte-identical to
+  Packet Tracer's only with classic zlib.
+
+### Added
+
+- `pkt pack --original FILE`: reuse `FILE`'s compressed stream when the XML is
+  unchanged, so `pkt unpack` followed by `pkt pack --original` reproduces the
+  source file exactly. `--format` defaults to the original's flavour when given.
+- CI runs the gated test matrix on `windows-latest` with Python 3.14 (zlib-ng).
+- Bulk ECB `encrypt_blocks()` on `LibgcryptCipher` for single-call multi-block
+  CTR encryption.
+- `Device.save_ref_id` (`<ENGINE><SAVE_REF_ID>`) and `PktNode.__hash__`.
 
 ### Fixed
 
@@ -22,19 +49,41 @@ releases are tagged `sdk-v*` and published to PyPI as
   take an optional `original=` container whose payload is reused while the XML
   is byte-identical. Edited XML is compressed as before; on classic zlib the
   output for edited files is unchanged.
-
-### Added
-
-- `pkt pack --original FILE`: reuse `FILE`'s compressed stream when the XML is
-  unchanged, so `pkt unpack` followed by `pkt pack --original` reproduces the
-  source file exactly. `--format` defaults to the original's flavour when given.
-- CI runs the gated test matrix on `windows-latest` with Python 3.14 (zlib-ng).
-
-### Changed
-
-- Docs no longer claim fresh compression is byte-exact everywhere: unchanged
-  files always round-trip exactly; freshly compressed output is byte-identical to
-  Packet Tracer's only with classic zlib.
+- **Topology export & semantic diff on builder-authored labs.** `export.py`
+  (`to_graphviz`, `to_netbox`, `to_containerlab`) and `diff.py` (`diff_labs`)
+  now resolve `<FROM>save-ref-id:...</FROM>` / `<TO>save-ref-id:...</TO>`
+  directly against `Device.save_ref_id` in addition to `Device.dev_addr`, and
+  disambiguate duplicate device names in `diff_labs()`. Previously `to_graphviz`
+  dropped all edges on `pkt_core.builder.Lab`-authored files.
+- **Repaired all 10 truncated module templates in `device_templates.json`**
+  (`C9320-SFP-BUILTIN`, `IE3400-SFP-BUILTIN`, `IR1101-BUILTIN`,
+  `IR8340-LAN-BUILTIN`, `IR8340-WAN-BUILTIN`, `ISR4321-BUILTIN`,
+  `ISR4331-BUILTIN`, `MX65W`, `NM-2E2W`, `PT8200-BUILTIN`) and updated
+  `harvest_modules()` / `tools/harvest_library.py` to extract `<SLOT>` elements
+  with `ElementTree` instead of substring search so nested `<SLOT>` children
+  never truncate module templates.
+- **Serial links, module sanitization, wireless config & layout in `pkt_core.builder.Lab`.**
+  Set `CLOCKRATEFLAG="false"` on DTE serial ports (`rate == 0`) and `"true"` on
+  DCE ports (`rate > 0`); support both `eSmartSerial` and `eSerial` port types
+  and 2-tuple slot/port names (`Serial2/0`); clear dirty donor `<IP>`,
+  `<SUBNET>`, `<PORT_GATEWAY>`, and `<PORT_DNS>` on installed modules; merge
+  `clock rate` into existing `interface` stanzas instead of duplicating them;
+  update `<WIRELESS_COMMON>` / `<WIRELESS_PROFILE>` / `<WLAN_CONFIG>` blocks in
+  `set_wireless()`; and fix multi-page calculation in `Layout.reserve()` and
+  `Layout._band_for()`.
+- **Core codec, crypto, XML & CLI fixes.** Deterministic `cipher.close()` in
+  `eax_seal`, `eax_open`, and `eax_verify`; allow `"legacy"` detection when
+  `"legacy"` is passed in `detect_format(..., candidates=...)`; reject trailing
+  bytes after zlib streams in `quncompress()`; unescape standard XML entities in
+  `XmlElement.get()` and `XmlText.text` to prevent double-escaping; handle
+  processing instructions (`<?...?>`) containing quotes or `>` and whitespace
+  before `/` in self-closing tags; replace quadratic `XmlElement.dirty` walks
+  with single-pass bottom-up serialization; include `root` in
+  `audit._parent_of()`; guard `Device` properties when `<ENGINE>` is absent;
+  omit `key_byte`/`iv_byte` in `pkt unpack` metadata for legacy files; and fix
+  `tools/activity.py`, `tools/scoring.py`, `tools/make_scored_lab.py`,
+  `tools/build_configured_lab.py`, `tools/build_large_topology.py`, `pt9.py`,
+  and test corpus discovery paths.
 
 ## [0.4.3] — 2026-11-19
 

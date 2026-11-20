@@ -50,8 +50,20 @@ from pkt_core.crypto.ciphers import (  # noqa: E402
 
 CORPUS_DIR = REPO_ROOT / "corpus"
 CORPUS_INDEX = CORPUS_DIR / "CORPUS_INDEX.tsv"
-CORPUS_FILES_DIR = CORPUS_DIR / "internet"
-PT9_PATH = REPO_ROOT / "packet-tracer-pkt-format" / "pt9.py"
+CORPUS_FILES_DIR = next(
+    (
+        p
+        for p in (
+            CORPUS_DIR / "files",
+            CORPUS_DIR / "internet",
+            REPO_ROOT.parent / "corpus" / "internet",
+            REPO_ROOT.parent / "corpus" / "files",
+        )
+        if p.is_dir()
+    ),
+    CORPUS_DIR / "files",
+)
+PT9_PATH = REPO_ROOT / "pt9.py"
 
 # Repeated-byte container key/IV of the .pkt/.pka format (pt9.py FORMATS).
 _PKT_KEY_BYTE = 0x89

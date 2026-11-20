@@ -45,6 +45,8 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import ctypes.util
+import hmac
 import struct
 import sys
 import zlib
@@ -77,8 +79,13 @@ _GCRYPT_SONAMES = (
     "libgcrypt.dylib",
 )
 
+_found_gcrypt = ctypes.util.find_library("gcrypt")
+_CANDIDATES = (
+    (_found_gcrypt, *_GCRYPT_SONAMES) if _found_gcrypt else _GCRYPT_SONAMES
+)
+
 _g = None
-for _soname in _GCRYPT_SONAMES:  # pragma: no cover - platform dependent
+for _soname in _CANDIDATES:  # pragma: no cover - platform dependent
     try:
         _g = ctypes.CDLL(_soname)
         break
@@ -94,10 +101,13 @@ if _g is None:  # pragma: no cover - platform dependent
 _g.gcry_check_version.restype = ctypes.c_char_p
 _g.gcry_check_version(None)
 _g.gcry_cipher_open.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+_g.gcry_cipher_open.restype = ctypes.c_int
 _g.gcry_cipher_close.argtypes = [ctypes.c_void_p]
 _g.gcry_cipher_close.restype = None
 _g.gcry_cipher_setkey.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
+_g.gcry_cipher_setkey.restype = ctypes.c_int
 _g.gcry_cipher_encrypt.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
+_g.gcry_cipher_encrypt.restype = ctypes.c_int
 
 # NOTE: libgcrypt 1.12 renumbered its static cipher ids (SERPENT128/192/256 are
 # now 304/305/306, not 12/13/14; TWOFISH128 is 303).  Never hard-code them --
@@ -296,7 +306,7 @@ def decode_bytes(raw, fmt="pkt", verify_tag=True):
     cipher, kb, vb = FORMATS[fmt]
     ct = _layer_a(raw)
     pt, computed, stored = _eax_decrypt(cipher, bytes([kb]) * 16, bytes([vb]) * 16, ct)
-    if verify_tag and computed != stored:
+    if verify_tag and not hmac.compare_digest(computed, stored):
         raise PacketTracerError("EAX tag mismatch (wrong format or corrupted file)")
     return _quncompress(_layer_b(pt))
 
@@ -320,10 +330,38 @@ def encode(path, xml, fmt="pkt"):
 
 
 def _root_tag(xml):
-    s = xml[:400].decode("utf-8", "replace")
-    start = s.find("<")
-    end = s.find(">", start)
-    return s[start + 1:end].split()[0] if start >= 0 and end > start else "?"
+    head = xml[:4096].decode("utf-8", "replace")
+    pos = 0
+    while True:
+        start = head.find("<", pos)
+        if start < 0:
+            return "?"
+        if head.startswith("<!--", start):
+            end = head.find("-->", start + 4)
+            if end < 0:
+                return "?"
+            pos = end + 3
+            continue
+        if head.startswith("<?", start):
+            end = head.find("?>", start + 2)
+            if end < 0:
+                return "?"
+            pos = end + 2
+            continue
+        if head.startswith("<!", start):
+            end = head.find(">", start + 2)
+            if end < 0:
+                return "?"
+            pos = end + 1
+            continue
+        end = head.find(">", start + 1)
+        if end < 0:
+            return "?"
+        inner = head[start + 1 : end].strip()
+        if not inner or inner.startswith("/"):
+            return "?"
+        parts = inner.split()
+        return (parts[0].rstrip("/") if parts else "") or "?"
 
 
 def main(argv=None):
