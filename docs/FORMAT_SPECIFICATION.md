@@ -8,7 +8,9 @@
 | **L** — legacy | PT **4.1** → 5.3.2 | Complete. Byte-exact round-trip on 193 real files. See [`LEGACY_FORMAT.md`](LEGACY_FORMAT.md). |
 
 Whole-corpus proof: **1,058/1,058 decode and round-trip byte-exact** —
-[`CORPUS_VERIFICATION.md`](CORPUS_VERIFICATION.md).
+[`CORPUS_VERIFICATION.md`](CORPUS_VERIFICATION.md). Unchanged files round-trip
+exactly on any zlib; freshly compressed output matches only with classic zlib
+(see §9).
 
 **Verified against:** Cisco Packet Tracer 9.0.1.0858 (Linux x86-64), plus 1,058
 real-world containers spanning **PT 4.1 through PT 9.0.1**.
@@ -235,15 +237,22 @@ F = layer_a_inverse(sealed)
 Three independent invariants, all confirmed on real files:
 
 1. `decode(encode(xml)) == xml` — round-trip through the container.
-2. `encode(decode(f)) == f` **byte-for-byte** — for real `.pkt` and `.pka` files.
+2. `encode(decode(f)) == f` **byte-for-byte** — for real `.pkt` and `.pka` files,
+   when the original compressed stream is reused (`original=` in `pkt_core`). With
+   classic zlib, recompressing from scratch also reproduces the file exactly.
 3. The AEAD tag verifies on every genuine file and rejects any byte-level
    corruption.
 
-Caveat on zlib: zlib's compressed stream is not guaranteed bit-stable across
-builds/versions. Container byte-fidelity is therefore established on real files
-(which retain their original compressed stream) and by comparing inflated
-content; a re-encode from scratch may legitimately differ in the zlib bytes while
-remaining a valid container holding identical XML.
+Caveat on zlib: deflate output is not guaranteed to be identical across
+implementations. Classic zlib's `compress(xml, -1)` reproduces Packet Tracer's
+qCompress stream byte for byte (all 1,058 corpus files). zlib-ng, which some
+Python builds link against (for example the official CPython 3.14 Windows build;
+check `zlib.ZLIB_RUNTIME_VERSION`), emits a different but equally valid stream.
+`pkt_core` therefore keeps the original qCompress payload on a decoded
+`Container` and reuses it when the XML is unchanged, so unchanged files always
+round-trip exactly. Edited documents are recompressed and are only byte-identical
+to what Packet Tracer would write when Python uses classic zlib. Either way the
+result is a valid container holding exactly the given XML.
 
 ## 10. Family L — legacy container (PT 4.1 – 5.3.2)
 

@@ -11,10 +11,12 @@ Quick start::
     container = decode("lab.pkt")          # verifier-based format detection
     print(container.root_tag)              # 'PACKETTRACER5'
     xml = container.xml                    # the inner XML document
-    rebuilt = encode_bytes(xml, container.format_name)
+    rebuilt = encode_bytes(xml, container.format_name, original=container)
 
-The container is fully deterministic (fixed key + fixed IV), so re-encoding the
-same XML yields the same bytes.
+Passing ``original=`` reuses the file's compressed stream while the XML is
+unchanged, so an untouched file re-encodes to exactly its original bytes on any
+zlib build. Edited XML is recompressed; that output matches Packet Tracer's
+byte for byte only with classic zlib (zlib-ng emits a different, valid stream).
 """
 
 from __future__ import annotations
