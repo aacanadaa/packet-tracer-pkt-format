@@ -255,11 +255,11 @@ RESULT: FAILED (15 failures, 0 warnings)
 
 ## Commit history
 
-<a href="https://commit-history.com/aacanadaa">
+<a href="https://github.com/aacanadaa/packet-tracer-pkt-format/graphs/contributors">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://commit-history.com/embed/aacanadaa?theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://commit-history.com/embed/aacanadaa" />
-    <img alt="Commit history chart" src="https://commit-history.com/embed/aacanadaa" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/commit-history-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/commit-history-light.svg" />
+    <img alt="Repository and contributor commit history chart" src="docs/img/commit-history-light.svg" />
   </picture>
 </a>
 
