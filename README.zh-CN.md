@@ -253,8 +253,15 @@ RESULT: FAILED (15 failures, 0 warnings)
   </picture>
 </a>
 
+## 贡献者 (Contributors)
+
+<a href="https://github.com/aacanadaa/packet-tracer-pkt-format/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=aacanadaa/packet-tracer-pkt-format" />
+</a>
+
 ---
 
 如果这个项目帮到了你，欢迎请我喝杯咖啡：
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20me-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/suoim)
+

@@ -230,3 +230,10 @@ Full format specs, schema docs, and verification reports are published at [aacan
     <img alt="Star history chart" src="https://api.star-history.com/chart?repos=aacanadaa/packet-tracer-pkt-format&type=date&legend=top-left" />
   </picture>
 </a>
+
+## Contributors
+
+<a href="https://github.com/aacanadaa/packet-tracer-pkt-format/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=aacanadaa/packet-tracer-pkt-format" />
+</a>
+
