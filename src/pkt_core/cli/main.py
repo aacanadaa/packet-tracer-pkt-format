@@ -7,6 +7,7 @@ the library, not in this module.
     pkt info   lab.pkt
     pkt unpack lab.pkt -o out/
     pkt pack   out/lab.xml -o lab.pkt
+    pkt pack   out/lab.xml -o lab.pkt --original lab.pkt   # exact if unchanged
     pkt diff   a.pkt b.pkt
 """
 
@@ -182,7 +183,12 @@ def cmd_unpack(args: argparse.Namespace) -> int:
 # pkt pack
 # --------------------------------------------------------------------------
 def cmd_pack(args: argparse.Namespace) -> int:
-    """Re-serialise XML back into a container."""
+    """Re-serialise XML back into a container.
+
+    With ``--original``, the original file's compressed stream is reused when
+    the XML is unchanged, so the output is byte-identical to that file on any
+    zlib build. Edited XML is compressed as normal.
+    """
     src: Path = args.file
     xml = src.read_bytes()
 
@@ -191,10 +197,20 @@ def cmd_pack(args: argparse.Namespace) -> int:
         print(f"error: {args.output} exists (use --force to overwrite)", file=sys.stderr)
         return 1
 
-    encode(args.output, xml, args.format, level=args.level)
+    original: Container | None = _load(args.original) if args.original is not None else None
+    fmt = args.format
+    if fmt is None:
+        fmt = original.format_name if original is not None else DEFAULT_FORMAT
+
+    encode(args.output, xml, fmt, level=args.level, original=original)
     out_size = args.output.stat().st_size
     print(f"xml   : {len(xml):,} bytes  (root <{detected}>)")
-    print(f"format: {args.format}")
+    print(f"format: {fmt}")
+    if original is not None:
+        if original.xml == xml:
+            print(f"stream: reused from {args.original} (XML unchanged)")
+        else:
+            print(f"stream: recompressed (XML differs from {args.original})")
     print(f"wrote -> {args.output}  ({out_size:,} bytes)")
 
     if args.verify:
@@ -358,8 +374,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("pack", help="build a container from XML")
     p.add_argument("file", type=Path, help="input XML file")
     p.add_argument("-o", "--output", type=Path, required=True)
-    p.add_argument("--format", default=DEFAULT_FORMAT, choices=sorted(FORMATS))
+    p.add_argument(
+        "--format", default=None, choices=sorted(FORMATS),
+        help=f"container flavour (default: the --original file's, else {DEFAULT_FORMAT})",
+    )
     p.add_argument("--level", type=int, default=-1, help="zlib level (-1 default)")
+    p.add_argument(
+        "--original", type=Path, default=None, metavar="FILE",
+        help="container the XML was unpacked from; if the XML is unchanged its "
+        "compressed stream is reused, so the output matches FILE byte for byte",
+    )
     p.add_argument("--force", action="store_true", help="overwrite the output")
     p.add_argument("--verify", action="store_true", help="decode again and compare")
     p.set_defaults(func=cmd_pack)
