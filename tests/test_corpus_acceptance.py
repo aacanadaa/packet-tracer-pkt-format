@@ -11,11 +11,16 @@ It is the regression gate for the format specification.
 from __future__ import annotations
 
 import csv
+import zlib
 from pathlib import Path
 
 import pytest
 
 from pkt_core import decode_bytes, encode_bytes
+
+#: zlib-ng deflates to different (valid) bytes, so only the preserve-original
+#: path can be byte-exact there; fresh compression is checked on classic zlib.
+CLASSIC_ZLIB = "zlib-ng" not in getattr(zlib, "ZLIB_RUNTIME_VERSION", "")
 
 REPO = Path(__file__).resolve().parent.parent
 INDEX = REPO.parent / "corpus" / "CORPUS_INDEX.tsv"
@@ -54,8 +59,10 @@ def test_every_corpus_container_roundtrips_byte_exact() -> None:
         except Exception as exc:  # noqa: BLE001 - collecting all failures
             failures.append(f"{name}: {type(exc).__name__}: {exc}")
             continue
-        if encode_bytes(container.xml, container.format_name) != raw:
-            not_exact.append(name)
+        if encode_bytes(container.xml, container.format_name, original=container) != raw:
+            not_exact.append(f"{name} (original payload reused)")
+        elif CLASSIC_ZLIB and encode_bytes(container.xml, container.format_name) != raw:
+            not_exact.append(f"{name} (fresh compression)")
 
     assert not failures, f"{len(failures)} decode failures:\n" + "\n".join(failures[:20])
     assert not not_exact, (

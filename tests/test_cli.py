@@ -8,6 +8,7 @@ tooling and are GPL-3.0.
 from __future__ import annotations
 
 import json
+import zlib
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,18 @@ REPO = Path(__file__).resolve().parent.parent
 SAMPLES = REPO / "corpus" / "samples"
 LAB = SAMPLES / "sample_lab.pkt"
 ACTIVITY = SAMPLES / "sample_activity.pka"
+
+#: zlib-ng (used by e.g. CPython 3.14 on Windows) inflates everything classic
+#: zlib does but deflates to a different byte stream, so freshly compressed
+#: output cannot match Packet Tracer's bytes there.
+ZLIB_NG = "zlib-ng" in getattr(zlib, "ZLIB_RUNTIME_VERSION", "")
+requires_classic_zlib = pytest.mark.skipif(
+    ZLIB_NG,
+    reason=(
+        f"Python's zlib is {getattr(zlib, 'ZLIB_RUNTIME_VERSION', '?')}: zlib-ng "
+        "deflates to different (valid) bytes than the classic zlib Packet Tracer uses"
+    ),
+)
 
 pytestmark = pytest.mark.skipif(
     not (LAB.exists() and ACTIVITY.exists()),
@@ -65,11 +78,56 @@ def test_encode_is_deterministic() -> None:
 
 
 def test_container_roundtrip_reproduces_file_bytes() -> None:
-    """encode(decode(f)) == f — the strongest invariant the format offers."""
+    """encode(decode(f), original=...) == f — on any zlib build.
+
+    The strongest invariant the format offers: an unchanged document re-encodes
+    to the exact original file, because the original compressed stream is reused.
+    """
+    for path in (LAB, ACTIVITY):
+        original = path.read_bytes()
+        container = decode_bytes(original)
+        assert container.payload is not None
+        rebuilt = encode_bytes(container.xml, container.format_name, original=container)
+        assert rebuilt == original
+
+
+@requires_classic_zlib
+def test_fresh_compression_reproduces_file_bytes_on_classic_zlib() -> None:
+    """Classic zlib's ``compress(x, -1)`` matches Packet Tracer's qCompress stream."""
     for path in (LAB, ACTIVITY):
         original = path.read_bytes()
         container = decode_bytes(original)
         assert encode_bytes(container.xml, container.format_name) == original
+
+
+def _edit(xml: bytes) -> bytes:
+    """Insert a comment before the root's closing tag: a real but harmless edit."""
+    close = xml.rindex(b"</")
+    return xml[:close] + b"<!-- edited by test -->" + xml[close:]
+
+
+def test_edited_xml_is_recompressed_and_decodes_back() -> None:
+    """``original=`` must never smuggle the old payload past an edit."""
+    for path in (LAB, ACTIVITY):
+        original = path.read_bytes()
+        container = decode_bytes(original)
+        edited = _edit(container.xml)
+        rebuilt = encode_bytes(edited, container.format_name, original=container)
+        assert rebuilt != original
+        # Edited output is exactly what a fresh encode produces (same zlib).
+        assert rebuilt == encode_bytes(edited, container.format_name)
+        again = decode_bytes(rebuilt)
+        assert again.xml == edited
+        assert again.format_name == container.format_name
+
+
+def test_original_payload_is_ignored_when_absent() -> None:
+    """A synthesised Container (no payload) falls back to compressing."""
+    container = decode_bytes(LAB.read_bytes())
+    bare = Container(xml=container.xml, format_name=container.format_name, spec=container.spec)
+    rebuilt = encode_bytes(bare.xml, bare.format_name, original=bare)
+    assert rebuilt == encode_bytes(container.xml, container.format_name)
+    assert decode_bytes(rebuilt).xml == container.xml
 
 
 def test_detect_format_uses_the_tag_not_a_prefix() -> None:
@@ -151,6 +209,52 @@ def test_cli_unpack_and_pack_roundtrip(tmp_path: Path, capsys: pytest.CaptureFix
 
     # And the rebuilt container must hold byte-identical XML.
     assert decode(rebuilt).xml == decode(LAB).xml
+
+
+def test_cli_unpack_then_pack_with_original_is_byte_exact(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """unpack -> pack --original reproduces the source file on any zlib."""
+    for path in (LAB, ACTIVITY):
+        out_dir = tmp_path / path.stem
+        assert main(["unpack", str(path), "-o", str(out_dir), "--no-configs", "--no-topology"]) == 0
+        xml_file = out_dir / f"{path.stem}.xml"
+        rebuilt = tmp_path / f"rebuilt{path.suffix}"
+        capsys.readouterr()
+        # No --format: it defaults to the original's flavour.
+        argv = ["pack", str(xml_file), "-o", str(rebuilt), "--original", str(path), "--force"]
+        assert main([*argv, "--verify"]) == 0
+        out = capsys.readouterr().out
+        assert "XML unchanged" in out
+        assert rebuilt.read_bytes() == path.read_bytes()
+
+
+def test_cli_pack_with_original_recompresses_edited_xml(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    edited = _edit(decode(LAB).xml)
+    xml_file = tmp_path / "edited.xml"
+    xml_file.write_bytes(edited)
+    out = tmp_path / "out.pkt"
+    assert main(["pack", str(xml_file), "-o", str(out), "--original", str(LAB), "--verify"]) == 0
+    assert "recompressed" in capsys.readouterr().out
+    assert decode(out).xml == edited
+
+
+def test_cli_pack_explicit_format_overrides_the_original(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--format wins over --original's flavour; the reused stream still decodes."""
+    xml = decode(LAB).xml
+    xml_file = tmp_path / "lab.xml"
+    xml_file.write_bytes(xml)
+    out = tmp_path / "out.pkt"
+    argv = ["pack", str(xml_file), "-o", str(out), "--original", str(LAB), "--format", "legacy"]
+    assert main(argv) == 0
+    assert "format: legacy" in capsys.readouterr().out
+    again = decode(out)
+    assert again.format_name == "legacy"
+    assert again.xml == xml
 
 
 def test_cli_pack_refuses_to_overwrite_without_force(tmp_path: Path) -> None:

@@ -146,13 +146,21 @@ def test_real_legacy_files_decode(path: Path) -> None:
 @pytest.mark.skipif(not LEGACY_FILES, reason="corpus not fetched (see corpus/README.md)")
 @pytest.mark.corpus
 def test_real_legacy_roundtrip_is_byte_exact() -> None:
-    """encode(decode(f)) == f across the fetched legacy population."""
+    """encode(decode(f)) == f across the fetched legacy population.
+
+    Reusing the original payload is exact on any zlib; fresh compression is
+    only expected to match on classic zlib (zlib-ng emits different bytes).
+    """
+    classic = "zlib-ng" not in getattr(zlib, "ZLIB_RUNTIME_VERSION", "")
     exact = 0
     for path in LEGACY_FILES:
         raw = path.read_bytes()
         container = decode_bytes(raw)
-        if encode_bytes(container.xml, "legacy") == raw:
-            exact += 1
+        if encode_bytes(container.xml, "legacy", original=container) != raw:
+            continue
+        if classic and encode_bytes(container.xml, "legacy") != raw:
+            continue
+        exact += 1
     assert exact == len(LEGACY_FILES), (
         f"only {exact}/{len(LEGACY_FILES)} legacy files round-tripped byte-exactly"
     )
