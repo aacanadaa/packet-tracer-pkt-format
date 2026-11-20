@@ -16,7 +16,7 @@
 [![No Packet Tracer needed](https://img.shields.io/badge/Packet_Tracer-not_required-32d74b.svg)](#快速上手)
 [![Cisco Packet Tracer](https://img.shields.io/badge/Cisco_Packet_Tracer-1BA0D7?style=flat&logo=cisco&logoColor=white)](#格式支持)
 
-**Languages:** [English](README.md) | 简体中文
+**Languages:** [English](README.md) | 简体中文 | [日本語](README_ja.md)
 
 <p align="center">
   <img src="https://count.getloli.com/@aacanadaa-pkt-format?name=aacanadaa-pkt-format&theme=moebooru&padding=8&offset=0&align=top&scale=1.3&pixelated=1&darkmode=auto" alt="Visitors"/>
@@ -104,8 +104,8 @@ container = decode("lab.pkt")          # 通过 EAX 标签或旧版探测自动�
 print(container.root_tag)              # 'PACKETTRACER5'
 print(container.is_activity)           # False (.pka -> PACKETTRACER5_ACTIVITY)
 
-# 传入 original= 时，若 XML 未修改则复用原文件的压缩流，在任何 Python 上都能逐字节还原 lab.pkt。
-# 重新压缩的输出仅在经典 zlib 下与 Packet Tracer 逐字节一致（zlib-ng 输出不同但同样有效）。
+# 重新编码。传入 original= 时，若 XML 未修改则直接复用原文件的压缩流，
+# 在任何 Python 环境下都能逐字节还原 lab.pkt。
 rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 ```
 
@@ -128,17 +128,7 @@ rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 
 模型对象直接包装底层的 `XmlElement`，未修改的节点在写回时保持原始字节不变，未建模的子元素可通过 `extra_fields` 访问。IOS `<LINE>` 配置保持为 `bytes`，避免破坏 `banner motd ^C...^C` 中的 `\x03` 等控制字符。
 
-测试用的样例文件已提交在 [`corpus/samples/`](corpus/samples/)，无需额外下载即可运行测试。分析用的 1,026 个第三方样本文件不随仓库分发，复现方法见 [`corpus/README.md`](corpus/README.md) 和 [`corpus/fetch_corpus.py`](corpus/fetch_corpus.py)。
-
-## 三种加密后端
-
-| 后端 | Twofish | Serpent | CAST-256 |
-| --- | --- | --- | --- |
-| **Rust**（可选扩展） | 0.090 µs/块 | 0.151 µs | 0.209 µs |
-| libgcrypt | 0.827 µs | 0.885 µs | 不支持 |
-| 纯 Python（内置回退） | 13.2 µs | 47.6 µs | 18.7 µs |
-
-三种后端都经过标准测试向量（Twofish AES、Serpent NESSIE、CAST-256 RFC 2612 附录 A）交叉验证，输出逐字节一致。
+本仓库生成的测试样例位于 [`corpus/samples/`](corpus/samples/)，无需额外下载即可直接运行测试。分析过程中使用的第三方语料文件未提交到仓库；复现方法见 [`corpus/README.md`](corpus/README.md) 和 [`corpus/fetch_corpus.py`](corpus/fetch_corpus.py)。
 
 ## 命令行用法
 
@@ -163,7 +153,7 @@ $ pytest tests/
 
 ### 审计生成的实验（`pkt audit`）
 
-从真实文件采集的设备模板往往残留默认服务记录（例如默认的 AAA 客户端、`serverPool` DHCP 地址池或默认 FTP 账号）。`pkt audit` 会同时输出原始数量和去重后的数量，配合 `--templates` 标出模板残留项，遇到重复项时返回非零退出码：
+从真实文件采集的设备模板往往残留默认服务记录（例如默认的 AAA 客户端、`serverPool` DHCP 地址池或默认 FTP 账号）。`pkt audit` 会同时输出设备、IP、配置行与服务的原始数量和去重后数量，配合 `--templates` 标出模板残留项，遇到重复项时返回非零退出码：
 
 ```console
 $ pkt audit JASDF_AEWC_JADGE.pkt --templates tools/device_templates.json
@@ -219,19 +209,7 @@ RESULT: FAILED (15 failures, 0 warnings)
 | Y-AMLT（横滨海运码头） | 386 | 380 | 15,345 | 1.33 MB |
 | IRUMA-AB（航空自卫队基地） | 392 | 372 | 13,728 | 1.40 MB |
 
-完整文档站点见 [aacanadaa.github.io/packet-tracer-pkt-format](https://aacanadaa.github.io/packet-tracer-pkt-format/)。
-
-## 参考文档
-
-| 文档 | 内容 |
-| --- | --- |
-| [FORMAT_SPECIFICATION.md](docs/FORMAT_SPECIFICATION.md) | 两种容器家族的完整二进制格式规范 |
-| [SCHEMA_REFERENCE.md](docs/SCHEMA_REFERENCE.md) | 1,285 个 XML 元素名参考 |
-| [LEGACY_FORMAT.md](docs/LEGACY_FORMAT.md) | PT 5.x 旧版容器分析说明 |
-| [CORPUS_VERIFICATION.md](docs/CORPUS_VERIFICATION.md) | 1,058/1,058 逐字节验证报告 |
-| [PKA_GENERATION.md](docs/PKA_GENERATION.md) | 离线生成评分 `.pka` 指南 |
-| [LARGE_TOPOLOGY_TEST.md](docs/LARGE_TOPOLOGY_TEST.md) | 77 设备大型拓扑测试记录 |
-| [PACKET_TRACER_VALIDATION.md](docs/PACKET_TRACER_VALIDATION.md) | Packet Tracer 实测验证 |
+完整的格式规范、Schema 文档和验证报告发布在 [aacanadaa.github.io/packet-tracer-pkt-format](https://aacanadaa.github.io/packet-tracer-pkt-format/)。
 
 ## 法律与合规说明
 
@@ -241,7 +219,7 @@ RESULT: FAILED (15 failures, 0 warnings)
 
 ## 许可证
 
-**GNU General Public License v3.0 或更高版本**（见 [LICENSE](LICENSE)）。遵循 GPLv3 条款即可自由使用、修改和再分发，包括用于商业用途。
+**GNU General Public License v3.0 或更高版本**（[LICENSE](LICENSE)）。遵循 GPLv3 条款即可自由使用、修改和再分发，包括用于商业用途。
 
 ## Star history
 
@@ -262,10 +240,4 @@ RESULT: FAILED (15 failures, 0 warnings)
     <img alt="Repository and contributor commit history chart" src="docs/img/commit-history-light.svg" />
   </picture>
 </a>
-
----
-
-如果这个项目帮到了你，欢迎请我喝杯咖啡：
-
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20me-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/suoim)
 

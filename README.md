@@ -16,7 +16,7 @@ This repo documents the Packet Tracer file format (both legacy PT 4.1–5.3.2 an
 [![No Packet Tracer needed](https://img.shields.io/badge/Packet_Tracer-not_required-32d74b.svg)](#quickstart)
 [![Cisco Packet Tracer](https://img.shields.io/badge/Cisco_Packet_Tracer-1BA0D7?style=flat&logo=cisco&logoColor=white)](#format-support)
 
-**Languages:** English | [简体中文](README.zh-CN.md)
+**Languages:** English | [简体中文](README.zh-CN.md) | [日本語](README_ja.md)
 
 <p align="center">
   <img src="https://count.getloli.com/@aacanadaa-pkt-format?name=aacanadaa-pkt-format&theme=moebooru&padding=8&offset=0&align=top&scale=1.3&pixelated=1&darkmode=auto" alt="Visitors"/>
