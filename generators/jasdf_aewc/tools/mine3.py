@@ -19,8 +19,9 @@ def _find_toolkit() -> Path:
 
 
 TK = _find_toolkit()
-sys.path.insert(0,str(TK))
-import pt9
+sys.path.insert(0, str(TK))
+sys.path.insert(0, str(TK / "src"))
+from pkt_core import decode
 import xml.etree.ElementTree as ET
 
 CORPUS = os.environ.get('PT_CORPUS', str(TK / 'corpus' / 'files'))
@@ -34,7 +35,7 @@ ioss=collections.defaultdict(list)
 ok=fail=0
 for f in files:
     try:
-        root=ET.fromstring(pt9.decode(f,'pkt',verify_tag=False))
+        root=ET.fromstring(decode(f, verify_tag=False).xml)
     except Exception:
         fail+=1; continue
     ok+=1
@@ -64,7 +65,9 @@ for mdl in sorted(ports):
     rep[mdl]=dict(ports[mdl])
     print(f'\n== {mdl} ({len(ports[mdl])} names)')
     for p,n in ports[mdl].most_common(40): print(f'     {p:28s} {n}')
-json.dump({'ports':rep},open('build/port_names.json','w'),indent=1)
-json.dump(ioss,open('build/ios_samples.json','w'),indent=1)
+with open('build/port_names.json', 'w', encoding='utf-8') as fh:
+    json.dump({'ports':rep}, fh, indent=1)
+with open('build/ios_samples.json', 'w', encoding='utf-8') as fh:
+    json.dump(ioss, fh, indent=1)
 print('\nmodels with port evidence:',len(rep))
 print('models with ios samples:',{k:len(v) for k,v in ioss.items()})

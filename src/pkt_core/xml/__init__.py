@@ -39,6 +39,7 @@ from pkt_core.xml.nodes import (
     escape_xml_text,
     parse_xml,
     parse_xml_bytes,
+    unescape_xml_text,
 )
 from pkt_core.xml.writer import element, text, write_xml
 
@@ -48,6 +49,7 @@ __all__ = [
     "XmlNode",
     "XmlText",
     "escape_xml_text",
+    "unescape_xml_text",
     "parse_xml",
     "parse_xml_bytes",
     "write_xml",

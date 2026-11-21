@@ -410,12 +410,30 @@ class TemplateLeftovers:
         models: dict[str, bytes] = {k: decode(v) for k, v in doc["models"].items()}
         return cls.from_templates(models)
 
+    @classmethod
+    def from_bundled(cls) -> "TemplateLeftovers":
+        """Fingerprint the template library bundled inside the package."""
+        return _bundled_template_leftovers()
+
     def for_model(self, model: str) -> Mapping[str, frozenset[Identity]]:
         """Leftover identities of one device model (empty when unknown)."""
         return self.by_model.get(model, {})
 
     def is_leftover(self, model: str, family: str, identity: Identity) -> bool:
         return identity in self.for_model(model).get(family, frozenset())
+
+
+_BUNDLED_LEFTOVERS: TemplateLeftovers | None = None
+
+
+def _bundled_template_leftovers() -> TemplateLeftovers:
+    global _BUNDLED_LEFTOVERS
+    if _BUNDLED_LEFTOVERS is None:
+        from pkt_core.resources import load_device_templates
+
+        models, _modules = load_device_templates()
+        _BUNDLED_LEFTOVERS = TemplateLeftovers.from_templates(models)
+    return _BUNDLED_LEFTOVERS
 
 
 def _parse_fragment(blob: bytes | str) -> XmlElement:

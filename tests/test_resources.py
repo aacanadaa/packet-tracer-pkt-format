@@ -107,3 +107,16 @@ def test_pc_ip_sets_the_gateway_packet_tracer_actually_reads(tmp_path) -> None:
     port = device.find(".//PORT")
     assert port is not None
     assert port.findtext("PORT_GATEWAY") == "10.0.1.1"
+
+
+def test_tools_and_bundled_data_are_in_sync() -> None:
+    """Bundled resources in src/pkt_core/data/ must stay byte-identical to tools/."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    assert (repo / "tools" / "device_templates.json").read_bytes() == (
+        repo / "src" / "pkt_core" / "data" / "device_templates.json"
+    ).read_bytes()
+    assert (repo / "tools" / "network_seed.xml").read_bytes() == (
+        repo / "src" / "pkt_core" / "data" / "network_seed.xml"
+    ).read_bytes()

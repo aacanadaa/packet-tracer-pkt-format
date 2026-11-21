@@ -42,7 +42,7 @@ def harvest(saves_dir):
                    key=os.path.getsize)
     for f in files:
         try:
-            xml = decode(f, "pkt", verify_tag=True).xml
+            xml = decode(f, verify_tag=True).xml
         except Exception:
             continue
         ref_block.clear(); ref_model.clear()
@@ -72,9 +72,9 @@ def harvest(saves_dir):
 def build(seed_pkt, models, ports, out_pkt, core_model="2960-24TT"):
     with open(seed_pkt, "rb") as fh:
         seed = fh.read()
-    seed_xml = decode_bytes(seed, "pkt").xml if seed_pkt.lower().endswith(".pkt") else seed
+    seed_xml = decode_bytes(seed).xml if seed_pkt.lower().endswith((".pkt", ".pka")) else seed
     base = ET.fromstring(seed_xml)
-    net = base.find("NETWORK")
+    net = base.find("NETWORK") or base.find(".//NETWORK")
     devs = net.find("DEVICES")
     d0 = devs.findall("DEVICE")[0]
     PH = d0.find("WORKSPACE/PHYSICAL").text.strip()
@@ -84,8 +84,10 @@ def build(seed_pkt, models, ports, out_pkt, core_model="2960-24TT"):
     base_id = 9_100_000_000_000_000_000
 
     def prep(blk, idx, name):
+        esc_name = (str(name).replace("&", "&amp;").replace("<", "&lt;")
+                    .replace(">", "&gt;").replace('"', "&quot;"))
         s = re.sub(r"save-ref-id:\d+", lambda m: "save-ref-id:%d" % (base_id + idx), blk)
-        s = re.sub(r"<NAME[^>]*>.*?</NAME>", '<NAME translate="true">%s</NAME>' % name, s, count=1, flags=re.S)
+        s = re.sub(r"<NAME[^>]*>.*?</NAME>", lambda m: '<NAME translate="true">%s</NAME>' % esc_name, s, count=1, flags=re.S)
         x, y = 60 + (idx % 26) * 150, 90 + (idx // 26) * 130
         s = re.sub(r"(<WORKSPACE>\s*<LOGICAL>\s*<X>)[^<]*(</X>\s*<Y>)[^<]*(</Y>)",
                    lambda m: m.group(1) + str(x) + m.group(2) + str(y) + m.group(3), s, count=1, flags=re.S)
@@ -102,9 +104,19 @@ def build(seed_pkt, models, ports, out_pkt, core_model="2960-24TT"):
         for e in list(eng.findall("SAVE_REF_ID")):
             eng.remove(e)
         sid = ET.SubElement(eng, "SAVE_REF_ID"); sid.text = "save-ref-id:%d" % (base_id + idx)
-        el.find("WORKSPACE/LOGICAL/MEM_ADDR").text = str(random.randint(10**8, 2**31))
-        el.find("WORKSPACE/LOGICAL/DEV_ADDR").text = str(random.randint(10**8, 2**31))
-        return el, sid.text, el.find("WORKSPACE/LOGICAL/DEV_ADDR").text
+        logical = el.find("WORKSPACE/LOGICAL")
+        mem_el = el.find("WORKSPACE/LOGICAL/MEM_ADDR")
+        if mem_el is None and logical is not None:
+            mem_el = ET.SubElement(logical, "MEM_ADDR")
+        if mem_el is not None:
+            mem_el.text = str(random.randint(10**8, 2**31))
+        dev_el = el.find("WORKSPACE/LOGICAL/DEV_ADDR")
+        if dev_el is None and logical is not None:
+            dev_el = ET.SubElement(logical, "DEV_ADDR")
+        da = str(random.randint(10**8, 2**31))
+        if dev_el is not None:
+            dev_el.text = da
+        return el, sid.text, da
 
     order = sorted(models, key=lambda m: (not re.match(r"^\d", m), m))
     wired = []
@@ -134,6 +146,8 @@ def build(seed_pkt, models, ports, out_pkt, core_model="2960-24TT"):
             cores.append((sid, da))
 
     links = net.find("LINKS")
+    if links is None:
+        links = ET.SubElement(net, "LINKS")
     def add_link(refA, portA, addrA, refB, portB, addrB):
         L = ET.SubElement(links, "LINK")
         ET.SubElement(L, "TYPE").text = "eCopper"
@@ -167,7 +181,7 @@ def main():
     models, ports = harvest(a.saves)
     ndev, nlink = build(a.seed, models, ports, a.out, a.core_model)
     print(f"harvested {len(models)} models ({len(ports)} wireable); wrote {ndev} devices, "
-          f"{nlink} links -> {a.out} ({len(open(a.out,'rb').read())} bytes)")
+          f"{nlink} links -> {a.out} ({os.path.getsize(a.out)} bytes)")
 
 
 if __name__ == "__main__":

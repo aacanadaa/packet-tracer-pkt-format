@@ -131,14 +131,12 @@ def _svg_path(points: Sequence[tuple[float, float]]) -> str:
 
 
 def _extract_xkcd_font_css() -> str:
-    sh_svg = pathlib.Path("/tmp/sh_light.svg")
-    if sh_svg.exists():
-        m = re.search(r"(@font-face\{font-family:&quot;xkcd&quot;;src:url\([^)]+\)format\(&quot;woff&quot;\)\})", sh_svg.read_text())
-        if m:
-            return m.group(1)
     existing = IMG_DIR / "commit-history-light.svg"
     if existing.exists():
-        m = re.search(r"(@font-face\{font-family:&quot;xkcd&quot;;src:url\([^)]+\)format\(&quot;woff&quot;\)\})", existing.read_text())
+        m = re.search(
+            r"(@font-face\{font-family:&quot;xkcd&quot;;src:url\([^)]+\)format\(&quot;woff&quot;\)\})",
+            existing.read_text(encoding="utf-8"),
+        )
         if m:
             return m.group(1)
     return ""
@@ -214,13 +212,18 @@ def render_svg(
             f'filter="url(#xkcdify)"/>'
         )
         display_label = f"{label}: {vals[-1]}"
+        esc_label = (
+            display_label.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
         max_label_len = max(max_label_len, len(display_label))
         row_y = 20 + i * 22
         box_y = row_y - 8
         legend_rows_xml.append(
             f'<rect width="8" height="8" x="10" y="{box_y}" filter="url(#xkcdify)" '
             f'rx="2" ry="2" style="fill:{color}"/>'
-            f'<text x="24" y="{row_y}" style="font-size:15px;fill:{fg}">{display_label}</text>'
+            f'<text x="24" y="{row_y}" style="font-size:15px;fill:{fg}">{esc_label}</text>'
         )
 
     legend_w = max(210, int(max_label_len * 8.2 + 34))

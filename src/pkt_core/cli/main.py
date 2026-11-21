@@ -311,16 +311,20 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
     This is the documented command behind the published service figures: it
     prints raw *and* distinct counts per family, flags template leftovers and
-    fails (exit 1) on any duplicate.  ``--templates`` classifies records a
-    harvested device template carried (never authored) as leftovers.
+    fails (exit 1) on any duplicate.  ``--templates`` (or ``--bundled-templates``)
+    classifies records a harvested device template carried (never authored) as
+    leftovers.
     """
     container = _load(args.file)
     lab = Lab.from_bytes(container.xml)
-    leftovers = (
-        TemplateLeftovers.from_device_templates_json(args.templates)
-        if args.templates is not None
-        else None
-    )
+    if args.templates is not None:
+        leftovers: TemplateLeftovers | None = TemplateLeftovers.from_device_templates_json(
+            args.templates
+        )
+    elif getattr(args, "bundled_templates", False):
+        leftovers = TemplateLeftovers.from_bundled()
+    else:
+        leftovers = None
     report = validate_lab(lab, leftovers=leftovers)
     if args.json:
         payload = report.inventory.as_dict()
@@ -416,6 +420,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="device_templates.json: classify template-carried records as leftovers",
+    )
+    p.add_argument(
+        "--bundled-templates",
+        action="store_true",
+        help="classify leftovers using the package's bundled template library",
     )
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.set_defaults(func=cmd_audit)

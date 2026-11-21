@@ -57,8 +57,7 @@ def load_devices(path: Path) -> list[lab_api.Device]:
     if raw[:1] == b"<" or raw.lstrip()[:1] == b"<":
         xml = raw
     else:
-        fmt = "pka" if path.suffix.lower() == ".pka" else "pkt"
-        xml = lab_api.decode_bytes(raw, fmt).xml
+        xml = lab_api.decode_bytes(raw).xml
     return lab_api.parse_devices(xml)
 
 

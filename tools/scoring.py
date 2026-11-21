@@ -27,9 +27,15 @@ import xml.etree.ElementTree as ET
 
 
 def _section(xml, tag):
-    a = xml.find("<%s>" % tag)
-    b = xml.find("</%s>" % tag, a) + len("</%s>" % tag)
-    return xml[a:b]
+    open_tag = "<%s>" % tag
+    close_tag = "</%s>" % tag
+    a = xml.find(open_tag)
+    if a < 0:
+        raise ValueError("missing <%s> section" % tag)
+    b = xml.find(close_tag, a)
+    if b < 0:
+        raise ValueError("unclosed <%s> section" % tag)
+    return xml[a : b + len(close_tag)]
 
 
 def _net_node(root):
@@ -67,6 +73,8 @@ def from_template(template_xml, devices=None, overrides=None, rename=None):
         seg = _section(template_xml, tag)
         root = ET.fromstring(seg)
         net = _net_node(root)
+        if net is None:
+            raise ValueError("<%s> has no <NODE> root" % tag)
         devs = _device_nodes(net)
         # scaffolding = non-device direct children (COMPARISONS keeps them)
         kept = []
@@ -130,7 +138,13 @@ def derive_values(answer_xml):
         rc = re.search(r"<RUNNINGCONFIG>(.*?)</RUNNINGCONFIG>", blk, re.S)
         if rc:
             for line in re.findall(r"<LINE>(.*?)</LINE>", rc.group(1), re.S):
-                line = line.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+                line = (
+                    line.replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", '"')
+                    .replace("&apos;", "'")
+                    .replace("&amp;", "&")
+                )
                 ma = re.match(r"\s*ip address (\S+) (\S+)", line)
                 if ma:
                     vals["IP Address"] = ma.group(1)
@@ -191,9 +205,11 @@ def harvest_shapes(activity_xmls):
         try:
             init_root = ET.fromstring(_section(xml, "INITIALSETUP"))
             comp_root = ET.fromstring(_section(xml, "COMPARISONS"))
-        except ET.ParseError:
+        except (ET.ParseError, ValueError):
             continue
         inet, cnet = init_root.find("NODE"), comp_root.find("NODE")
+        if inet is None or cnet is None:
+            continue
         init_by_name = {c.findtext("NAME"): c for c in inet if c.tag == "NODE"}
         for c in cnet:
             if c.tag != "NODE":
