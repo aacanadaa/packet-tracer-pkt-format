@@ -98,7 +98,7 @@ def main():
     a = ap.parse_args()
 
     if a.spec:
-        with open(a.spec) as fh:
+        with open(a.spec, encoding="utf-8") as fh:
             spec = json.load(fh)
     else:
         spec = DEFAULT_SPEC
@@ -132,7 +132,7 @@ def main():
     act.set_scoring_xml(init_sc, comp_sc)
     act.set_networks(initial_xml=initial, answer_xml=answer)
     act.save(a.out)
-    print(f"wrote {a.out} ({len(open(a.out,'rb').read())} bytes); "
+    print(f"wrote {a.out} ({os.path.getsize(a.out)} bytes); "
           f"{len(spec['devices'])} devices, {len(spec['links'])} links")
 
 

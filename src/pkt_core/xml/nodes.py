@@ -12,6 +12,7 @@ the root tag) never materialises it.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Final, Iterator
 
@@ -23,6 +24,7 @@ __all__ = [
     "XmlElement",
     "XmlDocument",
     "escape_xml_text",
+    "unescape_xml_text",
     "parse_xml_bytes",
     "parse_xml",
 ]
@@ -52,18 +54,30 @@ _ENTITY_MAP: Final[dict[str, str]] = {
     "apos": "'",
 }
 
+_ENTITY_RE: Final[re.Pattern[str]] = re.compile(
+    r"&(amp|lt|gt|quot|apos|#[0-9]+|#x[0-9a-fA-F]+);"
+)
+
+
+def _replace_entity(match: re.Match[str]) -> str:
+    token = match.group(1)
+    mapped = _ENTITY_MAP.get(token)
+    if mapped is not None:
+        return mapped
+    try:
+        code = int(token[2:], 16) if token.startswith(("#x", "#X")) else int(token[1:], 10)
+    except ValueError:  # pragma: no cover - pattern constrains digits
+        return match.group(0)
+    if 0 < code <= 0x10FFFF and not (0xD800 <= code <= 0xDFFF):
+        return chr(code)
+    return match.group(0)
+
 
 def unescape_xml_text(text: str) -> str:
-    """Unescape the five standard XML character entities (``&amp;``, ``&lt;``, etc.)."""
+    """Unescape standard XML character entities and numeric character references."""
     if "&" not in text:
         return text
-    return (
-        text.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
-    )
+    return _ENTITY_RE.sub(_replace_entity, text)
 
 
 @dataclass(slots=True)

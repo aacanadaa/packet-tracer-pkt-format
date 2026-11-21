@@ -125,7 +125,7 @@ def load_templates(
     import base64
     import gzip
 
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         t = json.load(fh)
     gz = t.get("gz", False)
 
@@ -156,7 +156,7 @@ def harvest_models(
         if wanted and wanted <= set(out):
             break
         try:
-            xml = decode(f, "pkt", verify_tag=False).xml
+            xml = decode(f, verify_tag=False).xml
         except Exception:
             continue
         for m in _iter_devices(xml):
@@ -186,7 +186,7 @@ def harvest_modules(
         if wanted is not None and wanted <= set(out):
             break
         try:
-            xml = decode(f, "pkt", verify_tag=False).xml
+            xml = decode(f, verify_tag=False).xml
             root = ET.fromstring(xml)
         except Exception:
             continue
@@ -394,6 +394,8 @@ def parse_devices(xml: str | bytes) -> list[Device]:
         xml = xml.decode("utf-8", "replace")
     root = ET.fromstring(xml)
     devs = root.find("NETWORK/DEVICES")
+    if devs is None:
+        devs = root.find(".//NETWORK/DEVICES")
     out: list[Device] = []
     if devs is None:
         return out
@@ -646,7 +648,11 @@ class Lab:
         else:
             with open(seed, "rb") as fh:
                 raw = fh.read()
-            xml = decode_bytes(raw, "pkt").xml if str(seed).lower().endswith(".pkt") else raw
+            xml = (
+                decode_bytes(raw).xml
+                if str(seed).lower().endswith((".pkt", ".pka"))
+                else raw
+            )
         if models is None:
             models, bundled_modules = load_device_templates()
             if modules is None:
@@ -802,6 +808,16 @@ class Lab:
         # Validate inputs BEFORE mutating counters or physical-workspace leaves
         if model not in self.models:
             raise KeyError(model)
+        if install is not None:
+            if install not in self.modules:
+                raise KeyError(install)
+            if slot is None and bay not in (None, 0):
+                raise ValueError(
+                    f"bay={bay} indexes the list of *currently empty* bays, which "
+                    "renumbers as bays fill, so bay=1 can silently skip a bay. "
+                    "Use slot=<absolute bay index>, or omit both to take the "
+                    "next empty bay."
+                )
         if pc_ip is not None and len(pc_ip) != 3:
             raise ValueError(
                 f"pc_ip must be a 3-sequence (ip, mask, gateway), got {len(pc_ip)} item(s)"
@@ -920,6 +936,8 @@ class Lab:
         quietly doing the wrong thing.
         """
         el = self._els[dev_id]
+        if module_model not in self.modules:
+            raise KeyError(module_model)
         eng = el.find("ENGINE")
         if eng is None:
             raise ValueError(f"{dev_id}: device has no <ENGINE>")
@@ -1087,6 +1105,8 @@ class Lab:
         if kind not in ("copper", "serial"):
             raise ValueError("kind must be 'copper' or 'serial'")
         if kind == "serial":
+            if clock <= 0:
+                raise ValueError(f"serial clock rate must be positive, got {clock}")
             if dce is not None and dce not in (a_id, b_id):
                 raise ValueError(
                     f"dce must be one of the link endpoints ({a_id!r} or {b_id!r}), got {dce!r}"

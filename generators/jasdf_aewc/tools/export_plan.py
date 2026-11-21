@@ -38,7 +38,8 @@ def _find_toolkit() -> Path:
 
 TK = _find_toolkit()
 sys.path.insert(0, str(TK))
-import pt9                                    # noqa: E402
+sys.path.insert(0, str(TK / "src"))
+from pkt_core import decode_bytes             # noqa: E402
 import xml.etree.ElementTree as ET            # noqa: E402
 
 VLAN_NAMES = {1: "NATIVE/RADAR", 10: "OPS-TRACK", 20: "MISSION-SYS", 30: "VOICE",
@@ -47,8 +48,8 @@ VLAN_NAMES = {1: "NATIVE/RADAR", 10: "OPS-TRACK", 20: "MISSION-SYS", 30: "VOICE"
 
 
 def main(src="out/JASDF_AEWC_JADGE.pkt", sfx=""):
-    root = ET.fromstring(pt9.decode_bytes((ROOT / src).read_bytes(), "pkt",
-                                          verify_tag=True))
+    root = ET.fromstring(decode_bytes((ROOT / src).read_bytes(), "pkt",
+                                      verify_tag=True).xml)
     rows, subnets, pools, aaa, dns = [], Counter(), [], [], []
 
     for d in root.iter("DEVICE"):
@@ -74,6 +75,8 @@ def main(src="out/JASDF_AEWC_JADGE.pkt", sfx=""):
                              (p.findtext("SUBNET") or "").strip(), site))
 
         eng = d.find("ENGINE")
+        if eng is None:
+            continue
         nd = eng.find("DNS_SERVER/NAMESERVER-DATABASE")
         if nd is not None:
             for r in nd.findall("RESOURCE-RECORD"):
@@ -101,17 +104,17 @@ def main(src="out/JASDF_AEWC_JADGE.pkt", sfx=""):
             subnets[network(ip, mask)] += 1
 
     (ROOT / "docs").mkdir(exist_ok=True)
-    with (ROOT / "docs" / f"ADDRESS_PLAN{sfx}.csv").open("w", newline="") as fh:
+    with (ROOT / "docs" / f"ADDRESS_PLAN{sfx}.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["device", "model", "interface", "ip", "mask"])
         for r in sorted(rows):
             w.writerow([r[0], r[1], r[2], r[3], r[4]])
-    with (ROOT / "docs" / f"SUBNETS{sfx}.csv").open("w", newline="") as fh:
+    with (ROOT / "docs" / f"SUBNETS{sfx}.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["subnet", "addresses_in_use"])
         for s, n in sorted(subnets.items()):
             w.writerow([s, n])
-    with (ROOT / "docs" / f"VLANS{sfx}.csv").open("w", newline="") as fh:
+    with (ROOT / "docs" / f"VLANS{sfx}.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["vlan", "name", "purpose"])
         for v, n in sorted(VLAN_NAMES.items()):
@@ -138,7 +141,7 @@ def main(src="out/JASDF_AEWC_JADGE.pkt", sfx=""):
               for _h, n, net, mask, gw, a, b in pools[:60]]
     lines += ["", "## DNS zone (first 80 A-records)", ""]
     lines += [f"- `{h}` -> {ip}" for _s, h, ip in sorted(set(dns))[:80]]
-    (ROOT / "docs" / f"SERVICES{sfx}.md").write_text("\n".join(lines) + "\n")
+    (ROOT / "docs" / f"SERVICES{sfx}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     print(f"address rows : {len(rows)}")
     print(f"subnets      : {len(subnets)}")

@@ -162,11 +162,11 @@ def _audit(root: ET.Element) -> tuple[list[dict], list[dict]]:
             if sid not in devs:
                 continue
             port = (ports[i] or "").strip()
-            row[i] = dict(name=name_of[sid], model=model_attr[sid], port=port)
+            row[i] = dict(sid=sid, name=name_of[sid], model=model_attr[sid], port=port)
             if not cfg.get(sid):
                 continue          # carries no running-config at all; see Rule 6
             ic = cfg[sid].get(port)
-            peer = row.get(1 - i, {}).get("name", "?")
+            peer = name_of.get(ends[1 - i], "?")
             if ic is None:
                 findings.append(dict(kind="no-interface-block", device=name_of[sid],
                                      model=model_attr[sid], port=port, peer=peer))
@@ -180,13 +180,12 @@ def _audit(root: ET.Element) -> tuple[list[dict], list[dict]]:
         links.append(row)
 
     # A trunk facing an access port in a different VLAN forwards nothing.
-    by_name = {v: k for k, v in name_of.items()}
     for row in links:
         if len(row) < 2:
             continue
         (a, b) = (row[0], row[1])
-        ia = cfg.get(by_name.get(a["name"], ""), {}).get(a["port"])
-        ib = cfg.get(by_name.get(b["name"], ""), {}).get(b["port"])
+        ia = cfg.get(a["sid"], {}).get(a["port"])
+        ib = cfg.get(b["sid"], {}).get(b["port"])
         if not ia or not ib:
             continue
         if (a["model"] in ROUTER_MODELS or b["model"] in ROUTER_MODELS
@@ -234,7 +233,7 @@ def main(argv=None) -> int:
                   "that ships with it.")
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
-        a.json.write_text(json.dumps(findings, indent=1, sort_keys=True))
+        a.json.write_text(json.dumps(findings, indent=1, sort_keys=True), encoding="utf-8")
     return 1 if findings else 0
 
 

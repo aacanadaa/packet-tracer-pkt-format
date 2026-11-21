@@ -91,8 +91,8 @@ def rename_pools(xml: bytes, renames: list[dict[str, str]]) -> tuple[bytes, int,
 
         def _pat(pool_name: str) -> re.Pattern[str]:
             return re.compile(
-                r"(<POOL><NAME>)" + re.escape(pool_name)
-                + r"(</NAME><NETWORK>)" + re.escape(net) + r"(</NETWORK>)"
+                r"(<POOL>\s*<NAME>)" + re.escape(pool_name)
+                + r"(</NAME>\s*<NETWORK>)" + re.escape(net) + r"(</NETWORK>)"
             )
 
         pattern = _pat(old)
@@ -149,13 +149,13 @@ def refresh_report(path: Path, artifact: Path) -> dict[str, Any]:
     """
     import hashlib
 
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     raw = artifact.read_bytes()
     before = (data.get("size_bytes"), data.get("sha256"))
     data["size_bytes"] = len(raw)
     data["sha256"] = hashlib.sha256(raw).hexdigest()
     data["output"] = str(artifact)
-    path.write_text(json.dumps(data, indent=1))
+    path.write_text(json.dumps(data, indent=1), encoding="utf-8")
     return {"before": before, "after": (data["size_bytes"], data["sha256"])}
 
 
@@ -275,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
 
     renames: list[dict[str, str]] = []
     if args.rename_pools is not None:
-        renames = json.loads(args.rename_pools.read_text())
+        renames = json.loads(args.rename_pools.read_text(encoding="utf-8"))
 
     # The repack groups devices into bands by name.  The built-in rules are one
     # lab's naming convention, so a second lab must supply its own or every

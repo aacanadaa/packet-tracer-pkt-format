@@ -45,9 +45,12 @@ sys.path.insert(0, str(ROOT / "tools"))  # lab_api, check_layout
 import lab_api  # noqa: E402
 import check_layout  # noqa: E402
 
+from pkt_core.xml import unescape_xml_text  # noqa: E402
+
 # X/Y inside a device's logical workspace -- the only text this tool edits
 _LOGICAL_XY = re.compile(
     r"(<WORKSPACE>\s*<LOGICAL>\s*<X>)[^<]*(</X>\s*<Y>)[^<]*(</Y>)", re.S)
+_DEVICES = re.compile(r"<DEVICES>.*?</DEVICES>", re.S)
 _DEVICE = re.compile(r"<DEVICE>.*?</DEVICE>", re.S)
 _TYPE_MODEL = re.compile(r'<TYPE[^>]*model="([^"]*)"')
 _NAME = re.compile(r"<NAME[^>]*>(.*?)</NAME>", re.S)
@@ -73,6 +76,8 @@ def _engine_power_counts(xml: str) -> dict[str, int]:
     """Count device-level <ENGINE><POWER> states (port POWER excluded)."""
     root = lab_api.ET.fromstring(xml)
     devs = root.find("NETWORK/DEVICES")
+    if devs is None:
+        devs = root.find(".//NETWORK/DEVICES")
     counts = {"true": 0, "false": 0, "absent": 0}
     if devs is None:
         return counts
@@ -95,9 +100,9 @@ def _read(path: Path) -> tuple[str, str, bool]:
     """Return (xml_text, container_format, is_container)."""
     raw = path.read_bytes()
     if raw[:1] == b"<" or raw.lstrip()[:1] == b"<":
-        return raw.decode("utf-8"), "pkt", False
-    fmt = "pka" if path.suffix.lower() == ".pka" else "pkt"
-    return lab_api.decode_bytes(raw, fmt).xml.decode("utf-8"), fmt, True
+        return raw.decode("utf-8", "replace"), "pkt", False
+    c = lab_api.decode_bytes(raw)
+    return c.xml.decode("utf-8", "replace"), c.format_name, True
 
 
 def _write(path: Path, xml: str, fmt: str, container: bool) -> None:
@@ -113,24 +118,40 @@ def repack_xml(xml: str) -> tuple[str, list[tuple[str, int, int]]]:
     Devices are visited in document order and handed to ``lab_api.Layout``,
     grouped by :func:`tier_for_name`, so the output depends only on the device
     table -- never on the coordinates being replaced (idempotency)."""
-    layout = lab_api.Layout()
     moves: list[tuple[str, int, int]] = []
 
-    def repl(m: re.Match[str]) -> str:
-        blk = m.group(0)
-        name_m = _NAME.search(blk)
-        model_m = _TYPE_MODEL.search(blk)
-        name = name_m.group(1) if name_m else ""
-        model = model_m.group(1) if model_m else ""
-        if not _LOGICAL_XY.search(blk):
-            return blk
-        p = layout.place(name, model, group=tier_for_name(name))
-        moves.append((name, p.x, p.y))
-        return _LOGICAL_XY.sub(
-            lambda mm: (mm.group(1) + str(p.x) + mm.group(2) + str(p.y)
-                        + mm.group(3)), blk, count=1)
+    def _pack_block(block_xml: str, record_moves: bool) -> str:
+        layout = lab_api.Layout()
 
-    return _DEVICE.sub(repl, xml), moves
+        def repl(m: re.Match[str]) -> str:
+            blk = m.group(0)
+            name_m = _NAME.search(blk)
+            model_m = _TYPE_MODEL.search(blk)
+            name = unescape_xml_text(name_m.group(1)) if name_m else ""
+            model = unescape_xml_text(model_m.group(1)) if model_m else ""
+            if not _LOGICAL_XY.search(blk):
+                return blk
+            p = layout.place(name, model, group=tier_for_name(name))
+            if record_moves:
+                moves.append((name, p.x, p.y))
+            return _LOGICAL_XY.sub(
+                lambda mm: (mm.group(1) + str(p.x) + mm.group(2) + str(p.y)
+                            + mm.group(3)), blk, count=1)
+
+        return _DEVICE.sub(repl, block_xml)
+
+    if _DEVICES.search(xml):
+        seen_first = False
+
+        def repl_devs(dm: re.Match[str]) -> str:
+            nonlocal seen_first
+            first = not seen_first
+            seen_first = True
+            return _pack_block(dm.group(0), record_moves=first)
+
+        return _DEVICES.sub(repl_devs, xml), moves
+
+    return _pack_block(xml, record_moves=True), moves
 
 
 def repack_file(src: Path, dst: Path, dry_run: bool = False) -> dict[str, Any]:

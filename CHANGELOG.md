@@ -11,6 +11,58 @@ container images are unified under standard `v*` tags (`v2.0.0`). Earlier
 `0.3.0`–`0.4.3` library releases were tagged `sdk-v0.*` because `v1.2.0` and
 `v1.3.0` had previously been used for revisions of `SKILL.md`.
 
+## [2.0.1] — 2026-11-21
+
+### Added
+
+- `TemplateLeftovers.from_bundled()` and `pkt audit --bundled-templates` so
+  installs from PyPI can classify and gate against template leftovers using the
+  packaged 146-device library (`pkt_core.resources.load_device_templates()`)
+  without requiring a repository checkout.
+- Exported `unescape_xml_text` from `pkt_core.xml`, with support for decimal
+  (`&#...;`) and hexadecimal (`&#x...;`) numeric character references in
+  addition to standard XML named entities.
+
+### Fixed
+
+- **Single-pass XML entity unescaping in `unescape_xml_text()`.** Replaced
+  chained `.replace()` calls (where `.replace("&amp;", "&")` ran last and
+  corrupted double-escaped entities such as `&amp;lt;` into `<` instead of
+  `&lt;`) with a single-pass regex substitution.
+- **Duplicate device name link resolution in `to_graphviz()` and
+  `to_containerlab()`.** Links now resolve directly from endpoint identifiers
+  (`save_ref_id` and `dev_addr`) to each device's distinct node key (`d{i}` in
+  DOT, deduplicated `node_key` in Containerlab) rather than mapping through
+  `Device.name`, which previously collapsed cables between identically named
+  devices into self-loops.
+- **Up-front validation and `.pka`/legacy container support in
+  `pkt_core.builder.Lab`.** `add_device()` now validates `install` against
+  `self.modules` and checks `bay`/`slot` availability before incrementing
+  device counters, advancing layout placement, or adding physical workspace
+  leaves; `install_module()` checks `module_model in self.modules` with a clear
+  error; `link(..., kind="serial")` validates `clock > 0`; `parse_devices()`
+  falls back to `.//NETWORK/DEVICES` for `.pka` activities; and `Lab.__init__()`,
+  `harvest_models()`, and `harvest_modules()` auto-detect container format.
+- **Offline authoring & validation tools (`tools/` and `generators/jasdf_aewc/`).**
+  - `tools/check_layout.py` and `tools/repack_layout.py`: auto-detect container
+    format instead of passing `"pka"` to `decode_bytes()` (which raised
+    `FormatError` on every `.pka` file); unescape XML entities before measuring
+    label widths in `repack_xml()`; repack each `<NETWORK>` block independently
+    in multi-network `.pka` files; and count `.pka` `<ENGINE><POWER>` states.
+  - `tools/audit_links.py`: resolve `FROM`-endpoint (`i == 0`) peer names from
+    `ends[1 - i]` instead of `row.get(1 - i)` (which was not yet populated and
+    always reported `peer="?"`), and key `trunk-facing-access` lookups by
+    `save_ref_id` rather than reversing `name_of`.
+  - `tools/finalise_lab.py`: allow whitespace between `<POOL>`, `<NAME>`, and
+    `<NETWORK>` tags in `rename_pools()` and pass explicit `encoding="utf-8"`.
+  - `tools/scoring.py`: guard missing `<INITIALSETUP>` / `<COMPARISONS>` tags
+    and `<NODE>` roots instead of slicing at `-1` or iterating `None`.
+  - `generators/jasdf_aewc/`: migrate `validate.py`, `tools/draw_topology.py`,
+    `tools/export_plan.py`, `tools/mine3.py`, and `tools/mine_corpus.py` from
+    `pt9` to `pkt_core` (`decode`, `decode_bytes`,
+    `encode_bytes(..., original=container)`) so they work without `libgcrypt`
+    and across `zlib-ng` builds.
+
 ## [2.0.0] — 2026-11-19
 
 ### Changed

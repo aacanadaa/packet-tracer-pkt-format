@@ -119,11 +119,12 @@ def main():
     files = _files(a.saves + a.activities)
     models, modules, off = harvest_models(files)
     shapes = harvest_shapes(_files(a.saves + a.activities))
-    json.dump({"gz": True,
-               "models": {k: _gz_b64(v) for k, v in models.items()},
-               "modules": {k: _gz_b64(v) for k, v in modules.items()},
-               "power_normalised": off},
-              open(a.out_models, "w"))
+    with open(a.out_models, "w", encoding="utf-8") as fh:
+        json.dump({"gz": True,
+                   "models": {k: _gz_b64(v) for k, v in models.items()},
+                   "modules": {k: _gz_b64(v) for k, v in modules.items()},
+                   "power_normalised": off},
+                  fh)
     scoring.save_shapes(shapes, a.out_shapes)
     print(f"models={len(models)} modules={len(modules)} shapes={len(shapes['models'])} "
           f"-> {a.out_models} ({os.path.getsize(a.out_models)} B), {a.out_shapes}")

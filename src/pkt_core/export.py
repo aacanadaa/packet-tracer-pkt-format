@@ -66,21 +66,25 @@ def _edges(lab: Lab) -> list[Link]:
     return lab.links
 
 
-def _endpoint_names(lab: Lab) -> dict[str, str]:
-    """Map every endpoint identifier a cable may use onto a device name.
+def _endpoint_map(lab: Lab, values: list[str] | None = None) -> dict[str, str]:
+    """Map every endpoint identifier a cable may use onto per-device values.
 
     Cables reference devices two ways: ``<FROM>save-ref-id:...`` (matching
     ``<ENGINE><SAVE_REF_ID>``) and ``<FROM_DEVICE_MEM_ADDR>`` (matching
     ``<WORKSPACE><LOGICAL><DEV_ADDR>``). ``SAVE_REF_ID`` is unique per device
-    even when multiple devices of the same model share a template ``DEV_ADDR``,
-    so it is indexed directly alongside ``DEV_ADDR``.
+    even when multiple devices of the same model share a template ``DEV_ADDR``
+    or duplicate device names, so it is indexed directly alongside ``DEV_ADDR``.
     """
-    names: dict[str, str] = {}
-    for dev in _nodes(lab):
+    nodes = _nodes(lab)
+    targets = values if values is not None else [dev.name for dev in nodes]
+    mapped: dict[str, str] = {}
+    for dev, target in zip(nodes, targets):
         if dev.save_ref_id:
-            names[dev.save_ref_id] = dev.name
+            mapped[dev.save_ref_id] = target
         if dev.dev_addr:
-            names.setdefault(dev.dev_addr, dev.name)
+            mapped.setdefault(dev.dev_addr, target)
+        if dev.name:
+            mapped.setdefault(dev.name, target)
     for link in _edges(lab):
         cable = link.cable
         if cable is None:
@@ -89,9 +93,14 @@ def _endpoint_names(lab: Lab) -> dict[str, str]:
             (cable.from_device_addr, cable.from_ref),
             (cable.to_device_addr, cable.to_ref),
         ):
-            if addr and addr in names and ref:
-                names.setdefault(ref, names[addr])
-    return names
+            if addr and addr in mapped and ref:
+                mapped.setdefault(ref, mapped[addr])
+    return mapped
+
+
+def _endpoint_names(lab: Lab) -> dict[str, str]:
+    """Map every endpoint identifier a cable may use onto a device name."""
+    return _endpoint_map(lab)
 
 
 def _resolve_link_endpoints(link: Link, resolve: dict[str, str]) -> tuple[str, str] | None:
@@ -130,22 +139,23 @@ def to_graphviz(lab: Lab, *, name: str = "topology") -> str:
         "  node  [shape=box, style=rounded, fontname=\"Helvetica\"];",
         "  edge  [fontname=\"Helvetica\", fontsize=10];",
     ]
-    key_of: dict[str, str] = {}
-    for i, dev in enumerate(_nodes(lab)):
+    nodes = _nodes(lab)
+    node_keys: list[str] = []
+    for i, dev in enumerate(nodes):
         key = f"d{i}"
-        key_of[dev.name] = key
+        node_keys.append(key)
         subtitle = f"{dev.kind} {dev.model}".strip()
         label = f"{_escape(dev.name)}\\n{_escape(subtitle)}" if subtitle else _escape(dev.name)
         lines.append(f'  {key} [label="{label}"];')
 
-    resolve = _endpoint_names(lab)
+    valid_keys = set(node_keys)
+    resolve = _endpoint_map(lab, node_keys)
     for link in _edges(lab):
         endpoints = _resolve_link_endpoints(link, resolve)
         if endpoints is None:
             continue
-        src = key_of.get(endpoints[0], "")
-        dst = key_of.get(endpoints[1], "")
-        if not src or not dst:
+        src, dst = endpoints
+        if src not in valid_keys or dst not in valid_keys:
             continue
         ports = link.port_names
         label = " — ".join(ports) if ports else link.type
@@ -233,7 +243,7 @@ def to_containerlab(lab: Lab, *, topology_name: str = "pkt") -> str:
         "  nodes:",
     ]
     used_keys: set[str] = set()
-    node_key_by_name: dict[str, str] = {}
+    node_keys: list[str] = []
     for dev in _nodes(lab):
         base = _yaml_key(dev.name)
         node_key = base
@@ -242,7 +252,7 @@ def to_containerlab(lab: Lab, *, topology_name: str = "pkt") -> str:
             node_key = f"{base}-{suffix}"
             suffix += 1
         used_keys.add(node_key)
-        node_key_by_name.setdefault(dev.name, node_key)
+        node_keys.append(node_key)
         kind = _yaml_key(dev.kind.lower()) or "unknown"
         lines.append(f"    {node_key}:")
         lines.append(f"      kind: {_yaml_quote(kind)}")
@@ -250,15 +260,15 @@ def to_containerlab(lab: Lab, *, topology_name: str = "pkt") -> str:
         if dev.position != (0.0, 0.0):
             lines.append(f"      # canvas position: {dev.position[0]:.0f},{dev.position[1]:.0f}")
     lines.append("  links:")
-    resolve = _endpoint_names(lab)
+    resolve = _endpoint_map(lab, node_keys)
     for link in _edges(lab):
         endpoints = _resolve_link_endpoints(link, resolve)
         if endpoints is None:
             continue
         ports = link.port_names
-        name_a, name_b = endpoints
-        key_a = node_key_by_name.get(name_a, _yaml_key(name_a))
-        key_b = node_key_by_name.get(name_b, _yaml_key(name_b))
+        raw_a, raw_b = endpoints
+        key_a = raw_a if raw_a in used_keys else _yaml_key(raw_a)
+        key_b = raw_b if raw_b in used_keys else _yaml_key(raw_b)
         ep_a = f"{key_a}:{ports[0]}" if ports else key_a
         ep_b = f"{key_b}:{ports[1]}" if len(ports) > 1 else key_b
         lines.append(f"    - endpoints: [{_yaml_quote(ep_a)}, {_yaml_quote(ep_b)}]")

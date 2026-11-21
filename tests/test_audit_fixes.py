@@ -791,3 +791,157 @@ def test_new_audit_fixes_and_builder_coverage(
     assert cli_main(["diff", str(legacy_pkt), str(mod_pkt)]) == 0
     assert "outer format" in capsys.readouterr().out
 
+
+def test_v201_fixes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    import sys
+    import xml.etree.ElementTree as ET
+    from pkt_core.builder.lab import parse_devices
+    from pkt_core.xml import unescape_xml_text
+
+    # 1. Single-pass unescape_xml_text prevents double-unescaping &amp;lt; and supports numeric refs
+    assert unescape_xml_text("&amp;lt;") == "&lt;"
+    assert unescape_xml_text("&amp;quot;") == "&quot;"
+    assert unescape_xml_text("&#38;&#60;&#x26;&#x3C;") == "&<&<"
+    assert unescape_xml_text("&#99999999;") == "&#99999999;"
+    assert unescape_xml_text("&#xD800;") == "&#xD800;"
+
+    doc = parse_xml_bytes(b'<DEVICE name="&amp;lt;R1&amp;gt;"><TEXT>&amp;lt;hello&amp;gt; &#65;</TEXT></DEVICE>')
+    assert doc.root.get("name") == "&lt;R1&gt;"
+    child = doc.root.find("TEXT")
+    assert child is not None and child.text == "&lt;hello&gt; A"
+
+    # 2. Export to_graphviz & to_containerlab with duplicate device names resolves via save_ref_id/dev_addr
+    dup_link_xml = (
+        b"<PACKETTRACER5><NETWORK><DEVICES>"
+        b"<DEVICE><ENGINE><TYPE model='2911'>Router</TYPE><NAME>R1</NAME>"
+        b"<SAVE_REF_ID>save-ref-id:1</SAVE_REF_ID></ENGINE>"
+        b"<WORKSPACE><LOGICAL><DEV_ADDR>101</DEV_ADDR></LOGICAL></WORKSPACE></DEVICE>"
+        b"<DEVICE><ENGINE><TYPE model='2911'>Router</TYPE><NAME>R1</NAME>"
+        b"<SAVE_REF_ID>save-ref-id:2</SAVE_REF_ID></ENGINE>"
+        b"<WORKSPACE><LOGICAL><DEV_ADDR>202</DEV_ADDR></LOGICAL></WORKSPACE></DEVICE>"
+        b"</DEVICES><LINKS>"
+        b"<LINK><TYPE>eCopper</TYPE><CABLE>"
+        b"<FROM>save-ref-id:1</FROM><TO>save-ref-id:2</TO>"
+        b"<FROM_DEVICE_MEM_ADDR>101</FROM_DEVICE_MEM_ADDR><TO_DEVICE_MEM_ADDR>202</TO_DEVICE_MEM_ADDR>"
+        b"<PORT>Gig0/0</PORT><PORT>Gig0/1</PORT><TYPE>eCrossOver</TYPE>"
+        b"</CABLE></LINK>"
+        b"</LINKS></NETWORK></PACKETTRACER5>"
+    )
+    dup_lab = Lab.from_bytes(dup_link_xml)
+    dot = to_graphviz(dup_lab)
+    assert "d0 -> d1" in dot
+    assert "d1 -> d1" not in dot
+
+    clab = to_containerlab(dup_lab)
+    assert '"R1:Gig0/0", "R1-2:Gig0/1"' in clab
+
+    # 3. TemplateLeftovers.from_bundled() and CLI --bundled-templates / pkt export
+    bundled_leftovers = TemplateLeftovers.from_bundled()
+    assert bundled_leftovers is TemplateLeftovers.from_bundled()
+    assert "Server-PT" in bundled_leftovers.by_model
+
+    pkt_file = tmp_path / "dup_link.pkt"
+    pkt_file.write_bytes(encode_bytes(dup_link_xml))
+    assert cli_main(["audit", str(pkt_file), "--bundled-templates", "--json"]) == 1
+    audit_json = json.loads(capsys.readouterr().out)
+    assert audit_json["ok"] is False
+    assert audit_json["findings"][0]["code"] == "duplicate-device-name"
+
+    assert cli_main(["export", str(pkt_file), "--format", "graphviz"]) == 0
+    assert "d0 -> d1" in capsys.readouterr().out
+    clab_out = tmp_path / "topo.clab.yml"
+    assert cli_main(["export", str(pkt_file), "--format", "containerlab", "-o", str(clab_out)]) == 0
+    capsys.readouterr()
+    assert '"R1:Gig0/0", "R1-2:Gig0/1"' in clab_out.read_text(encoding="utf-8")
+
+    # 4. parse_devices on .pka activity XML and BuilderLab validation before mutation
+    pka_xml = (
+        b"<PACKETTRACER5_ACTIVITY><PACKETTRACER5><NETWORK><DEVICES>"
+        b"<DEVICE><ENGINE><TYPE model='2911'>Router</TYPE><NAME>ActR1</NAME></ENGINE>"
+        b"<WORKSPACE><LOGICAL><X>120</X><Y>240</Y></LOGICAL></WORKSPACE></DEVICE>"
+        b"</DEVICES></NETWORK></PACKETTRACER5></PACKETTRACER5_ACTIVITY>"
+    )
+    pka_devs = parse_devices(pka_xml)
+    assert len(pka_devs) == 1 and pka_devs[0].name == "ActR1"
+
+    blab = BuilderLab()
+    blab.prune_seed_devices()
+    before_n = blab._n
+    before_pos = blab._pos
+    before_devs = len(blab.devs.findall("DEVICE"))
+    with pytest.raises(KeyError, match="NO_SUCH_MODULE"):
+        blab.add_device("2911", "BadModR", install="NO_SUCH_MODULE")
+    with pytest.raises(ValueError, match="bay=1"):
+        blab.add_device("2911", "BadBayR", install="HWIC-2T", bay=1)
+    assert blab._n == before_n
+    assert blab._pos == before_pos
+    assert len(blab.devs.findall("DEVICE")) == before_devs
+
+    r1 = blab.add_device("2911", "R1", install="HWIC-2T")
+    r2 = blab.add_device("2911", "R2", install="HWIC-2T")
+    with pytest.raises(KeyError, match="NO_SUCH_MODULE"):
+        blab.install_module(r1, "NO_SUCH_MODULE")
+    with pytest.raises(ValueError, match="must be positive"):
+        blab.link(r1, "Serial0/0/0", r2, "Serial0/0/0", kind="serial", clock=0)
+
+    # 5. tools/ fixes: check_layout, repack_layout, finalise_lab, audit_links, scoring
+    tools_dir = str(Path(__file__).resolve().parent.parent / "tools")
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    import audit_links
+    import check_layout
+    import finalise_lab
+    import repack_layout
+    import scoring
+
+    pka_file = tmp_path / "act.pka"
+    blab_pka_xml = ET.tostring(blab.base, encoding="utf-8")
+    pka_wrapped = b"<PACKETTRACER5_ACTIVITY>" + blab_pka_xml + b"</PACKETTRACER5_ACTIVITY>"
+    pka_file.write_bytes(encode_bytes(pka_wrapped, fmt="pkt"))
+    loaded = check_layout.load_devices(pka_file)
+    assert len(loaded) == 2
+
+    repack_rep = repack_layout.repack_file(pka_file, pka_file, dry_run=True)
+    assert repack_rep["positions_only"] is True
+    assert repack_rep["power_before"]["true"] == 2
+
+    # finalise_lab.rename_pools with whitespace between tags
+    pool_xml = b"<POOLS><POOL>\n  <NAME>OLD</NAME>\n  <NETWORK>10.0.0.0</NETWORK></POOL></POOLS>"
+    renamed_xml, applied, already = finalise_lab.rename_pools(
+        pool_xml, [{"name": "OLD", "network": "10.0.0.0", "new": "NEW"}]
+    )
+    assert applied == 1 and already == 0 and b"<NAME>NEW</NAME>" in renamed_xml
+    _, applied2, already2 = finalise_lab.rename_pools(
+        renamed_xml, [{"name": "OLD", "network": "10.0.0.0", "new": "NEW"}]
+    )
+    assert applied2 == 0 and already2 == 1
+
+    # audit_links resolves peer name on FROM endpoint (i == 0)
+    audit_xml_bytes = (
+        b"<PACKETTRACER5><NETWORK><DEVICES>"
+        b"<DEVICE><ENGINE><TYPE model='2911'>Router</TYPE><NAME>R-FROM</NAME>"
+        b"<SAVE_REF_ID>save-ref-id:1</SAVE_REF_ID>"
+        b"<RUNNINGCONFIG><LINE>interface Gig0/0</LINE><LINE> shutdown</LINE></RUNNINGCONFIG>"
+        b"</ENGINE></DEVICE>"
+        b"<DEVICE><ENGINE><TYPE model='2911'>Router</TYPE><NAME>R-TO</NAME>"
+        b"<SAVE_REF_ID>save-ref-id:2</SAVE_REF_ID>"
+        b"<RUNNINGCONFIG><LINE>interface Gig0/0</LINE><LINE> no shutdown</LINE></RUNNINGCONFIG>"
+        b"</ENGINE></DEVICE>"
+        b"</DEVICES><LINKS>"
+        b"<LINK><CABLE><FROM>save-ref-id:1</FROM><TO>save-ref-id:2</TO>"
+        b"<PORT>Gig0/0</PORT><PORT>Gig0/0</PORT></CABLE></LINK>"
+        b"</LINKS></NETWORK></PACKETTRACER5>"
+    )
+    findings = audit_links.audit_xml(ET.fromstring(audit_xml_bytes))
+    assert len(findings) == 1
+    assert findings[0]["device"] == "R-FROM"
+    assert findings[0]["peer"] == "R-TO"
+
+    # scoring guards missing tags and missing <NODE> roots
+    with pytest.raises(ValueError, match="missing <INITIALSETUP>"):
+        scoring.from_template("<PACKETTRACER5/>")
+    assert scoring.harvest_shapes(["<PACKETTRACER5/>", "<INITIALSETUP/><COMPARISONS/>"]) == {
+        "scaffold": [],
+        "models": {},
+    }
+

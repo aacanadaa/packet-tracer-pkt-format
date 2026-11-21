@@ -24,8 +24,9 @@ def _find_toolkit() -> Path:
 
 TK = _find_toolkit()
 sys.path.insert(0, str(TK))
+sys.path.insert(0, str(TK / 'src'))
 sys.path.insert(0, str(TK / 'tools'))
-import pt9
+from pkt_core import decode
 import xml.etree.ElementTree as ET
 
 CORPUS = os.environ.get('PT_CORPUS', str(TK / 'corpus' / 'files'))
@@ -43,7 +44,7 @@ ok = fail = 0
 
 for f in files:
     try:
-        xml = pt9.decode(f, 'pkt', verify_tag=False)
+        xml = decode(f, verify_tag=False).xml
         root = ET.fromstring(xml)
     except Exception:
         fail += 1; continue
@@ -88,9 +89,10 @@ for mdl in sorted(portmap):
     print(f'\n{mdl}  ({len(ports)} distinct port names)')
     print('   ', ', '.join(f'{p}×{n}' for p, n in top))
 
-json.dump({'ports': out,
-           'counts': {k: len(v) for k, v in portmap.items()}},
-          open('build/port_names.json', 'w'), indent=1)
+with open('build/port_names.json', 'w', encoding='utf-8') as fh:
+    json.dump({'ports': out,
+               'counts': {k: len(v) for k, v in portmap.items()}},
+              fh, indent=1)
 
 print('\n\n=========== DNS NAMESERVER-DATABASE samples ===========')
 for name, s in dns_samples:
@@ -100,4 +102,5 @@ print('\n\n=========== ASA 5505 running-config samples ===========')
 for name, s in asa_samples[:2]:
     print('---', name); print((s or '')[:2500])
 
-json.dump({k: v for k, v in ios_samples.items()}, open('build/ios_samples.json','w'), indent=1)
+with open('build/ios_samples.json', 'w', encoding='utf-8') as fh:
+    json.dump({k: v for k, v in ios_samples.items()}, fh, indent=1)

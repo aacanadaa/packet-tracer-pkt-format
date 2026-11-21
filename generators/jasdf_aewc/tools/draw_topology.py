@@ -34,7 +34,8 @@ def _find_toolkit() -> Path:
 
 TK = _find_toolkit()
 sys.path.insert(0, str(TK))
-import pt9                                    # noqa: E402
+sys.path.insert(0, str(TK / "src"))
+from pkt_core import decode_bytes             # noqa: E402
 import xml.etree.ElementTree as ET            # noqa: E402
 
 # tier -> (label, fill, stroke)
@@ -96,7 +97,7 @@ def tier_of(name: str) -> str:
 
 def main(src, dst):
     raw = Path(src).read_bytes()
-    root = ET.fromstring(pt9.decode_bytes(raw, "pkt", verify_tag=True))
+    root = ET.fromstring(decode_bytes(raw, "pkt", verify_tag=True).xml)
 
     devs, order = {}, []
     for d in root.iter("DEVICE"):
@@ -114,7 +115,8 @@ def main(src, dst):
         order.append(sid)
 
     links = []
-    for L in root.find("NETWORK/LINKS").findall("LINK"):
+    links_el = root.find("NETWORK/LINKS")
+    for L in (links_el.findall("LINK") if links_el is not None else []):
         c = L.find("CABLE")
         if c is None:
             continue

@@ -44,7 +44,7 @@ def harvest(saves, wanted):
         if len(out) == len(wanted):
             break
         try:
-            xml = decode(f, "pkt", verify_tag=False).xml
+            xml = decode(f, verify_tag=False).xml
         except Exception:
             continue
         for m in re.finditer(rb"<DEVICE>.*?</DEVICE>", xml, re.S):
@@ -61,8 +61,8 @@ class Builder:
     def __init__(self, seed_pkt, blocks):
         with open(seed_pkt, "rb") as fh:
             seed = fh.read()
-        self.base = ET.fromstring(decode_bytes(seed, "pkt").xml if seed_pkt.endswith(".pkt") else seed)
-        self.net = self.base.find("NETWORK")
+        self.base = ET.fromstring(decode_bytes(seed).xml if seed_pkt.lower().endswith((".pkt", ".pka")) else seed)
+        self.net = self.base.find("NETWORK") or self.base.find(".//NETWORK")
         self.devs = self.net.find("DEVICES")
         d0 = self.devs.findall("DEVICE")[0]
         self.PH = d0.find("WORKSPACE/PHYSICAL").text.strip()
@@ -76,8 +76,10 @@ class Builder:
     def device(self, model, name, x, y):
         s = self.blocks[model].decode("utf-8", "replace")
         i = self.n; self.n += 1
+        esc_name = (str(name).replace("&", "&amp;").replace("<", "&lt;")
+                    .replace(">", "&gt;").replace('"', "&quot;"))
         s = re.sub(r"save-ref-id:\d+", lambda m: "save-ref-id:%d" % (9_400_000_000_000_000_000 + i), s)
-        s = re.sub(r"<NAME[^>]*>.*?</NAME>", '<NAME translate="true">%s</NAME>' % name, s, count=1, flags=re.S)
+        s = re.sub(r"<NAME[^>]*>.*?</NAME>", lambda m: '<NAME translate="true">%s</NAME>' % esc_name, s, count=1, flags=re.S)
         s = re.sub(r"(<WORKSPACE>\s*<LOGICAL>\s*<X>)[^<]*(</X>\s*<Y>)[^<]*(</Y>)",
                    lambda m: m.group(1) + str(x) + m.group(2) + str(y) + m.group(3), s, count=1, flags=re.S)
         s = re.sub(r"<PHYSICAL[^>]*>[^<]*</PHYSICAL>", "<PHYSICAL>%s</PHYSICAL>" % self.PH, s)
@@ -126,7 +128,10 @@ class Builder:
             gate.text = gw
 
     def link(self, a, pa, b, pb):
-        L = ET.SubElement(self.net.find("LINKS"), "LINK")
+        links = self.net.find("LINKS")
+        if links is None:
+            links = ET.SubElement(self.net, "LINKS")
+        L = ET.SubElement(links, "LINK")
         ET.SubElement(L, "TYPE").text = "eCopper"
         cab = ET.SubElement(L, "CABLE")
         for t, v in (("LENGTH", "1"), ("FUNCTIONAL", "true"), ("FROM", a), ("PORT", pa),
@@ -189,7 +194,7 @@ def main():
     b.link(sw2, "FastEthernet0/1", pc2, "FastEthernet0")
 
     b.save(a.out)
-    print(f"wrote {a.out} ({len(open(a.out,'rb').read())} bytes); R1 config lines: {len(r1cfg)}")
+    print(f"wrote {a.out} ({os.path.getsize(a.out)} bytes); R1 config lines: {len(r1cfg)}")
 
 
 if __name__ == "__main__":

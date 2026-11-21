@@ -43,7 +43,7 @@ def _find_toolkit() -> Path:
 TOOLKIT = _find_toolkit()
 sys.path.insert(0, str(TOOLKIT))
 sys.path.insert(0, str(TOOLKIT / "src"))
-import pt9  # noqa: E402
+from pkt_core import decode_bytes, encode_bytes  # noqa: E402
 
 # Devices deliberately staged off in the lab (spare / standby gear).  Empty for
 # JASDF-AEWC: every placed device must carry <ENGINE><POWER>true</POWER>.  The
@@ -70,7 +70,8 @@ def evidence():
     f = ROOT / "build" / "port_model.json"
     if not f.exists():
         raise SystemExit("build/port_model.json missing - run tools/build_port_model.py")
-    return json.load(f.open())
+    with f.open(encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 def main(path):
@@ -79,12 +80,13 @@ def main(path):
 
     # ---- 1. byte-exact round trip ------------------------------------- #
     try:
-        xml = pt9.decode_bytes(raw, "pkt", verify_tag=True)
+        container = decode_bytes(raw, "pkt", verify_tag=True)
+        xml = container.xml
     except Exception as e:
         fail(f"container did not decode: {type(e).__name__}: {e}")
         return report()
     try:
-        again = pt9.encode_bytes(xml, "pkt")
+        again = encode_bytes(xml, "pkt", original=container)
         if again != raw:
             fail(f"round-trip is NOT byte-exact ({len(again)} vs {len(raw)} bytes)")
         else:
