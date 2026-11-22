@@ -1,8 +1,8 @@
 # packet-tracer-pkt-format
 
-离线读取、修改和生成 Cisco Packet Tracer `.pkt` 实验文件与 `.pka` 评分活动，不需要安装 Packet Tracer。
+离线读取、修改、生成和自动批改 Cisco Packet Tracer `.pkt` 实验文件与 `.pka` 评分活动，不需要安装 Packet Tracer。
 
-本仓库记录了 Packet Tracer 的文件格式（覆盖 PT 4.1–5.3.2 旧版和 PT 5.3.3–9.0.1 现代容器），提供可将未修改文件逐字节还原的 Python 库（`pkt_core`）、命令行工具（`pkt`）以及离线实验构建器，可以直接生成包含设备、模块、连线、IOS 配置、PC IP、实验说明、活动向导密码和评分树的 `.pkt`/`.pka` 文件。
+本仓库记录了 Packet Tracer 的文件格式（覆盖 PT 4.1–5.3.2 旧版和 PT 5.3.3–9.0.1 现代容器），提供可将未修改文件逐字节还原的 Python 库（`pkt_core`）、命令行工具（`pkt`）、无头 `.pka`/`.pkt` 自动评分器（`pkt grade`）以及离线实验构建器，可以直接生成包含设备、模块、连线、IOS 配置、PC IP、实验说明、活动向导密码和评分树的 `.pkt`/`.pka` 文件。
 
 <img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="由代码生成并在 Packet Tracer 9.0.1 中打开的 392 台设备企业级拓扑" width="100%">
 
@@ -55,7 +55,7 @@ for dev in lab.devices:
 
 ## 离线生成实验
 
-`pkt_core.Lab` 内置了基础种子文件和 137 个设备模板，`pip install` 后即可直接生成 `.pkt`：
+`pkt_core.Lab` 内置了基础种子文件、146 个设备模板和 78 个硬件模块模板，`pip install` 后即可直接生成 `.pkt`：
 
 ```python
 from pkt_core import Lab
@@ -122,6 +122,7 @@ rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 | `pkt_core.builder` | 离线实验构建器（`Lab`、`Layout`） |
 | `pkt_core.resources` | 内置设备/模块模板库和种子 XML |
 | `pkt_core.audit` | 服务记录统计、重复项检查与模板残留清理 |
+| `pkt_core.grade` | 高速无头 `.pka`/`.pkt` 自动评分器（`grade_file`、`grade_batch`、`grade_lab`） |
 | `pkt_core.diff` | 设备、链路和运行配置的语义对比 |
 | `pkt_core.export` | 导出为 Graphviz DOT、NetBox JSON 和 containerlab YAML |
 | `pkt_core.errors` | 统一异常类型 |
@@ -139,7 +140,8 @@ $ pkt pack    out/my_lab.xml -o rebuilt.pkt   # 将 XML 重新打包为容器
 $ pkt pack    out/my_lab.xml -o rebuilt.pkt --original my_lab.pkt   # XML 未修改时逐字节完全还原
 $ pkt diff    before.pkt after.pkt            # 语义差异对比
 $ pkt export  my_lab.pkt --format graphviz    # 导出 graphviz / netbox / containerlab
-$ pkt audit   my_lab.pkt --templates tools/device_templates.json
+$ pkt audit   my_lab.pkt --bundled-templates  # 审计服务记录与模板残留项
+$ pkt grade   student.pka --against master.pka --csv grades.csv     # 无头自动评分
 ```
 
 在仓库目录中也可以直接运行单文件参考脚本 `pt9.py`（直接调用 `libgcrypt`，未打包进 PyPI 分发包）：
@@ -151,9 +153,35 @@ $ python3 pt9.py encode my_lab.xml -o my_lab.pkt
 $ pytest tests/
 ```
 
+### 无头自动评分（`pkt grade` 与 `pkt_core.grade`）
+
+无需启动 Packet Tracer，在毫秒级时间内离线批改 `.pka` 活动作业或 `.pkt` 拓扑——非常适合 CI/CD、GitHub Classroom 或批量批改全班作业目录：
+
+```console
+# 对比 .pka 内置的答案网络与评分树进行自动评分
+$ pkt grade submission.pka
+
+# 防篡改批量评分：使用教师端母版 master_activity.pka 批改并导出 CSV 成绩单
+$ pkt grade submissions/*.pka --against master_activity.pka --csv gradebook.csv
+
+# 对比参考答案 solution.pkt 批改普通 .pkt 作业
+$ pkt grade student.pkt --against solution.pkt --pass-threshold 80 --json
+```
+
+在 Python 中调用：
+
+```python
+from pkt_core import grade_file, grade_batch
+
+report = grade_file("student.pka", against="master.pka")
+print(report.passed, f"{report.percentage}%", f"({report.points_earned}/{report.points_possible} pts)")
+for item in report.failed_items:
+    print("MISS:", item.device, item.item, "expected=", item.expected, "actual=", item.actual)
+```
+
 ### 审计生成的实验（`pkt audit`）
 
-从真实文件采集的设备模板往往残留默认服务记录（例如默认的 AAA 客户端、`serverPool` DHCP 地址池或默认 FTP 账号）。`pkt audit` 会同时输出设备、IP、配置行与服务的原始数量和去重后数量，配合 `--templates` 标出模板残留项，遇到重复项时返回非零退出码：
+从真实文件采集的设备模板往往残留默认服务记录（例如默认的 AAA 客户端、`serverPool` DHCP 地址池或默认 FTP 账号）。`pkt audit` 会同时输出设备、IP、配置行与服务的原始数量和去重后数量，配合 `--bundled-templates`（或 `--templates`）标出模板残留项，遇到重复项时返回非零退出码：
 
 ```console
 $ pkt audit JASDF_AEWC_JADGE.pkt --templates tools/device_templates.json
@@ -198,7 +226,7 @@ RESULT: FAILED (15 failures, 0 warnings)
 - `tools/build_wired_lab.py`：采集设备并自动将以太网设备连线到核心交换机。
 - `tools/build_configured_lab.py`：生成带完整配置的多路由器实验（`PC1-SW1-R1=R2-SW2-PC2`）。
 - `tools/activity.py` + `tools/scoring.py`：编写 `.pka` 评分活动（HTML 说明、向导密码、权限、初始/答案网络、评分树）。
-- `tools/make_scored_lab.py`：根据 JSON 拓扑描述一次性生成评分 `.pka`，内置 137 个设备模板、78 个模块模板和 14 种评分形态。
+- `tools/make_scored_lab.py`：根据 JSON 拓扑描述一次性生成评分 `.pka`，内置 146 个设备模板、78 个模块模板和 14 种评分形态。
 - `tools/harvest_library.py`：从自己的 `.pkt`/`.pka` 文件扩展模板库。
 - `demo/build_demo.py`：6 设备 OSPF 示例，直接 `pip install` 后即可运行。
 

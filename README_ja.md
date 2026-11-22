@@ -1,8 +1,8 @@
 # packet-tracer-pkt-format
 
-Packet Tracer をインストールせずに、オフラインで Cisco Packet Tracer の `.pkt` ラボファイルや `.pka` 採点付きアクティビティを読み取り・編集・生成できます。
+Packet Tracer をインストールせずに、オフラインで Cisco Packet Tracer の `.pkt` ラボファイルや `.pka` 採点付きアクティビティを読み取り・編集・生成・自動採点できます。
 
-本リポジトリは、Packet Tracer のファイル形式（旧形式の PT 4.1–5.3.2 および現代の PT 5.3.3–9.0.1 コンテナの両方）を文書化し、未変更のファイルをバイト単位で完全往復（ラウンドトリップ）できる Python ライブラリ（`pkt_core`）、CLI（`pkt`）、および機器・モジュール・ケーブル・IOS 設定・PC の IP・課題説明文・Activity Wizard パスワード・採点ツリーを `.pkt`/`.pka` ファイルへ直接書き出すオフラインラボビルダーを提供します。
+本リポジトリは、Packet Tracer のファイル形式（旧形式の PT 4.1–5.3.2 および現代の PT 5.3.3–9.0.1 コンテナの両方）を文書化し、未変更のファイルをバイト単位で完全往復（ラウンドトリップ）できる Python ライブラリ（`pkt_core`）、CLI（`pkt`）、ヘッドレス `.pka`/`.pkt` 自動採点エンジン（`pkt grade`）、および機器・モジュール・ケーブル・IOS 設定・PC の IP・課題説明文・Activity Wizard パスワード・採点ツリーを `.pkt`/`.pka` ファイルへ直接書き出すオフラインラボビルダーを提供します。
 
 <img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="コードから生成され Packet Tracer 9.0.1 で開かれた 392 台構成のエンタープライズトポロジ" width="100%">
 
@@ -55,7 +55,7 @@ for dev in lab.devices:
 
 ## オフラインでのラボ構築
 
-`pkt_core.Lab` にはシードドキュメントと 137 種類の機器テンプレートが同梱されているため、`pip install` 直後から `.pkt` ファイルを生成できます：
+`pkt_core.Lab` にはシードドキュメント、146 種類の機器テンプレート、および 78 種類のモジュールテンプレートが同梱されているため、`pip install` 直後から `.pkt` ファイルを生成できます：
 
 ```python
 from pkt_core import Lab
@@ -122,6 +122,7 @@ rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 | `pkt_core.builder` | オフラインラボビルダー（`Lab`、`Layout`） |
 | `pkt_core.resources` | 同梱の機器・モジュールテンプレートライブラリおよびシード XML |
 | `pkt_core.audit` | サービス一覧集計、重複検出、テンプレート残存データのサニタイザ |
+| `pkt_core.grade` | 高速ヘッドレス `.pka`/`.pkt` 自動採点エンジン（`grade_file`、`grade_batch`、`grade_lab`） |
 | `pkt_core.diff` | 機器、リンク、running-config のセマンティック差分 |
 | `pkt_core.export` | Graphviz DOT、NetBox JSON、containerlab YAML へのエクスポート |
 | `pkt_core.errors` | パッケージの例外階層 |
@@ -139,7 +140,8 @@ $ pkt pack    out/my_lab.xml -o rebuilt.pkt   # XML をコンテナに再パッ�
 $ pkt pack    out/my_lab.xml -o rebuilt.pkt --original my_lab.pkt   # XML 未変更時に完全一致のコピーを生成
 $ pkt diff    before.pkt after.pkt            # セマンティック差分
 $ pkt export  my_lab.pkt --format graphviz    # graphviz / netbox / containerlab 出力
-$ pkt audit   my_lab.pkt --templates tools/device_templates.json
+$ pkt audit   my_lab.pkt --bundled-templates  # サービスレコードとテンプレート残存データの監査
+$ pkt grade   student.pka --against master.pka --csv grades.csv     # ヘッドレス自動採点
 ```
 
 リポジトリのチェックアウトからは、`libgcrypt` を直接バインドする単体スクリプト `pt9.py`（PyPI パッケージには含まれません）も利用できます：
@@ -151,9 +153,35 @@ $ python3 pt9.py encode my_lab.xml -o my_lab.pkt
 $ pytest tests/
 ```
 
+### ヘッドレス自動採点（`pkt grade` & `pkt_core.grade`）
+
+Packet Tracer を起動せずに、`.pka` 課題提出ファイルや `.pkt` ラボをミリ秒単位でオフライン採点できます（CI/CD、GitHub Classroom、クラス全体の一括採点に最適です）：
+
+```console
+# 生徒が保存した .pka を内部の解答ネットワークおよび採点ツリーと照合して採点
+$ pkt grade submission.pka
+
+# 改ざん防止付き一括採点：教員のマスター .pka を基準に採点し、CSV 成績表を出力
+$ pkt grade submissions/*.pka --against master_activity.pka --csv gradebook.csv
+
+# 通常の .pkt 提出ファイルを解答 .pkt と照合して採点
+$ pkt grade student.pkt --against solution.pkt --pass-threshold 80 --json
+```
+
+Python から呼び出す場合：
+
+```python
+from pkt_core import grade_file, grade_batch
+
+report = grade_file("student.pka", against="master.pka")
+print(report.passed, f"{report.percentage}%", f"({report.points_earned}/{report.points_possible} pts)")
+for item in report.failed_items:
+    print("MISS:", item.device, item.item, "expected=", item.expected, "actual=", item.actual)
+```
+
 ### 生成したラボの監査（`pkt audit`）
 
-実ファイルから抽出した機器テンプレートには、デフォルトのサービスレコード（デフォルトの AAA クライアント、`serverPool` DHCP プール、デフォルトの FTP アカウントなど）が残存していることがあります。`pkt audit` は機器、IP、設定行、サービスの総数（raw）と重複除外数（distinct）を集計し、`--templates` 指定時にはテンプレート由来の残存データを検出して、重複がある場合は非ゼロの終了コードを返します：
+実ファイルから抽出した機器テンプレートには、デフォルトのサービスレコード（デフォルトの AAA クライアント、`serverPool` DHCP プール、デフォルトの FTP アカウントなど）が残存していることがあります。`pkt audit` は機器、IP、設定行、サービスの総数（raw）と重複除外数（distinct）を集計し、`--bundled-templates`（または `--templates`）指定時にはテンプレート由来の残存データを検出して、重複がある場合は非ゼロの終了コードを返します：
 
 ```console
 $ pkt audit JASDF_AEWC_JADGE.pkt --templates tools/device_templates.json
@@ -198,7 +226,7 @@ PT 4.1 から 9.0.1 までの実コンテナ 1,058 個すべてにおいて、�
 - `tools/build_wired_lab.py` — 機器を抽出し、イーサネット対応機器をコアスイッチへ自動配線します。
 - `tools/build_configured_lab.py` — 設定済みのマルチルータラボ（`PC1-SW1-R1=R2-SW2-PC2`）を構築します。
 - `tools/activity.py` + `tools/scoring.py` — `.pka` アクティビティ（HTML 説明文、ウィザードパスワード、権限、初期/解答ネットワーク、採点ツリー）を作成します。
-- `tools/make_scored_lab.py` — 同梱の 137 種類の機器テンプレート、78 種類のモジュールテンプレート、14 種類の採点シェイプを用いて、JSON トポロジ定義から採点付き `.pka` を生成します。
+- `tools/make_scored_lab.py` — 同梱の 146 種類の機器テンプレート、78 種類のモジュールテンプレート、14 種類の採点シェイプを用いて、JSON トポロジ定義から採点付き `.pka` を生成します。
 - `tools/harvest_library.py` — 手持ちの `.pkt`/`.pka` ファイルからテンプレートライブラリを拡張します。
 - `demo/build_demo.py` — `pip install` だけで実行できる、6 台構成の小規模な OSPF デモです。
 

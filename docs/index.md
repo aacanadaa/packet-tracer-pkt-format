@@ -1,13 +1,13 @@
 ---
-description: Reverse-engineered documentation for the Cisco Packet Tracer .pkt and .pka container format, with a byte-exact Python codec and an offline lab generator.
+description: Reverse-engineered documentation for the Cisco Packet Tracer .pkt and .pka container format, with a byte-exact Python codec, an offline lab generator, and a headless auto-grader.
 ---
 
 # Cisco Packet Tracer `.pkt` / `.pka` — format documentation and toolkit
 
 Packet Tracer save files have **no magic header** and are fully encrypted, so `file`,
 `strings` and hex dumps show nothing but noise. These pages document the container —
-both families, PT 4.1 through 9.0.1 — and the tooling that reads, writes and
-generates it.
+both families, PT 4.1 through 9.0.1 — and the tooling that reads, writes, generates,
+and grades it.
 
 `encode(decode(f)) == f` **byte-for-byte on 1,058 of 1,058 real files**.
 
@@ -36,6 +36,8 @@ pkt unpack my_lab.pkt -o out/          # XML + per-device IOS configs + topology
 pkt pack   out/my_lab.xml -o rebuilt.pkt
 pkt diff   before.pkt after.pkt
 pkt export my_lab.pkt --format graphviz
+pkt audit  my_lab.pkt --bundled-templates
+pkt grade  student.pka --against master.pka --csv grades.csv
 ```
 
 ## The container in one paragraph
@@ -62,7 +64,8 @@ format is detected without a magic number. The switchover from the legacy family
 - **[Scene graph](SCENE_GRAPH.md)** — what is inside the XML, and what Packet Tracer
   validates when it loads a file.
 - **[Capabilities](CAPABILITIES.md)** — what the generators can and cannot author.
-- **[Activity files](ACTIVITY.md)** — `.pka`, the Activity Wizard, scoring trees.
+- **[Activity files & auto-grading](ACTIVITY.md)** — `.pka`, the Activity Wizard,
+  scoring trees, and headless grading via `pkt grade` / `pkt_core.grade`.
 - **[Verification](CORPUS_VERIFICATION.md)** — how byte-exactness was measured.
 
 </div>
@@ -73,6 +76,8 @@ format is detected without a magic number. The switchover from the legacy family
 - Documenting the format for tooling, archival and interoperability research.
 - Authoring labs and scored activities programmatically, with no Packet Tracer
   installed.
+- Batch-grading student `.pka` and `.pkt` submissions headlessly in CI/CD or LMS
+  pipelines, with anti-cheat verification against an instructor master file.
 
 It is **not** for obtaining, altering or submitting assessment or competition answer
 keys. That is out of scope, and the licence does not grant it.
