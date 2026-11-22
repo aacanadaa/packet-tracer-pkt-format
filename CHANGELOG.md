@@ -11,6 +11,48 @@ container images are unified under standard `v*` tags (`v2.0.0`). Earlier
 `0.3.0`–`0.4.3` library releases were tagged `sdk-v0.*` because `v1.2.0` and
 `v1.3.0` had previously been used for revisions of `SKILL.md`.
 
+## [3.0.0] — 2026-11-21
+
+### Added
+
+- **Fast, Headless `.pka` & `.pkt` Auto-Grader (`pkt_core.grade` & `pkt grade`).**
+  - **Embedded `.pka` Activity Grading (`grade_file("submission.pka")` / `pkt grade submission.pka`)**:
+    Evaluates a student's saved working network (`<PACKETTRACER5>` block 0)
+    against the activity's embedded `<COMPARISONS>` scoring tree and answer
+    network (`<PACKETTRACER5>` block 2) in milliseconds without launching Packet
+    Tracer.
+  - **Tamper-Proof Master Reference Grading (`--against master.pka`)**:
+    Grades student `.pka` submissions against the instructor's untouched master
+    `.pka` rubric and answer network so student edits to the embedded
+    `<ANSWERNETWORK>` or `<COMPARISONS>` tree cannot affect grading.
+  - **`.pkt`-to-`.pkt` Rubric Grading (`pkt grade student.pkt --against solution.pkt`)**:
+    Automatically derives a structured rubric from any solution `.pkt` (device
+    models, power states, cabled links, end-device IPv4/IPv6/gateway/DNS, IOS
+    hostname, interface IPs/masks/shutdown/descriptions/clock rates/ACLs,
+    switchport modes and access/native/voice VLANs, VLAN database, static
+    routes, OSPF network stanzas, and server DHCP/DNS/AAA services) and grades
+    student `.pkt` files item by item.
+  - **Parallel Batch Grading & CSV/JSON Gradebooks (`grade_batch` & `pkt grade submissions/*.pka --csv gradebook.csv --json`)**:
+    Decodes the master reference file once and grades batches of student
+    submissions concurrently across worker threads, with fast XML section
+    slicing (`_slim_xml_for_grading`) that skips megabytes of
+    `<PHYSICALWORKSPACE>`, `<SCRIPT_MODULE>`, and `<LOCKINGTREE>` data during
+    grading.
+- **New `Lab`, `Device`, `Port`, and `ScoringNode` Model APIs (`pkt_core.models`).**
+  - `Lab.embedded_networks`, `Lab.working_network`, `Lab.initial_network`,
+    `Lab.answer_network`, `Lab.working_lab`, `Lab.initial_lab`,
+    `Lab.answer_lab`, `Lab.initial_scoring_tree`, `Lab.complete_feedback`,
+    `Lab.incomplete_feedback`, and `Lab.component_list`.
+  - `Device.running_config` (raw `list[bytes]` of `<RUNNINGCONFIG><LINE>`
+    entries) and `Device.gateway` (`<ENGINE><GATEWAY>` or first port gateway).
+  - `Port.config` (`PortConfig` view directly on any `<PORT>`).
+  - `ScoringNode.points_value`, `ScoringNode.node_value`,
+    `ScoringNode.check_type`, `ScoringNode.eclass`, `ScoringNode.head_node`,
+    `ScoringNode.incorrect_feedback`, `ScoringNode.override_db_grading`,
+    `ScoringNode.variable_enabled`, and `ScoringNode.variable_name`.
+- Re-exported `grade_file`, `grade_bytes`, `grade_lab`, `grade_batch`,
+  `GradeReport`, `GradeItem`, and `DeviceScore` from `pkt_core`.
+
 ## [2.0.1] — 2026-11-21
 
 ### Added
