@@ -122,6 +122,7 @@ rebuilt = encode_bytes(container.xml, container.format_name, original=container)
 | `pkt_core.builder` | Offline lab builder (`Lab`, `Layout`) |
 | `pkt_core.resources` | Bundled device/module template library and seed XML |
 | `pkt_core.audit` | Service inventory, duplicate detection, and template-leftover sanitizer |
+| `pkt_core.grade` | Fast, headless `.pka`/`.pkt` auto-grader (`grade_file`, `grade_batch`, `grade_lab`) |
 | `pkt_core.diff` | Semantic device, link, and running-config diff |
 | `pkt_core.export` | Graphviz DOT, NetBox JSON, and containerlab YAML export |
 | `pkt_core.errors` | Package exception hierarchy |
@@ -139,7 +140,8 @@ $ pkt pack    out/my_lab.xml -o rebuilt.pkt   # repack XML into a container
 $ pkt pack    out/my_lab.xml -o rebuilt.pkt --original my_lab.pkt   # exact copy if XML unchanged
 $ pkt diff    before.pkt after.pkt            # semantic diff
 $ pkt export  my_lab.pkt --format graphviz    # graphviz / netbox / containerlab
-$ pkt audit   my_lab.pkt --templates tools/device_templates.json
+$ pkt audit   my_lab.pkt --bundled-templates  # audit service records & template leftovers
+$ pkt grade   student.pka --against master.pka --csv grades.csv     # headless auto-grader
 ```
 
 From a repo checkout, the standalone `pt9.py` script (which binds `libgcrypt` directly and is not part of the PyPI package) is also available:
@@ -149,6 +151,33 @@ $ python3 pt9.py info   my_lab.pkt
 $ python3 pt9.py decode my_lab.pkt -o my_lab.xml
 $ python3 pt9.py encode my_lab.xml -o my_lab.pkt
 $ pytest tests/
+```
+
+### Headless Auto-Grading (`pkt grade` & `pkt_core.grade`)
+
+Grade `.pka` activity submissions or `.pkt` labs offline in milliseconds without launching Packet Tracer — ideal for CI/CD, GitHub Classroom, or batch-grading an entire class folder:
+
+```console
+# Grade a student's saved .pka against its embedded answer network & scoring tree
+$ pkt grade submission.pka
+
+# Tamper-proof grading: grade student .pka files against the instructor's master .pka
+# and export a CSV gradebook
+$ pkt grade submissions/*.pka --against master_activity.pka --csv gradebook.csv
+
+# Grade a plain .pkt submission against a reference solution .pkt
+$ pkt grade student.pkt --against solution.pkt --pass-threshold 80 --json
+```
+
+From Python:
+
+```python
+from pkt_core import grade_file, grade_batch
+
+report = grade_file("student.pka", against="master.pka")
+print(report.passed, f"{report.percentage}%", f"({report.points_earned}/{report.points_possible} pts)")
+for item in report.failed_items:
+    print("MISS:", item.device, item.item, "expected=", item.expected, "actual=", item.actual)
 ```
 
 ### Auditing generated labs (`pkt audit`)
