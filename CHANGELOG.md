@@ -11,6 +11,50 @@ container images are unified under standard `v*` tags (`v2.0.0`). Earlier
 `0.3.0`–`0.4.3` library releases were tagged `sdk-v0.*` because `v1.2.0` and
 `v1.3.0` had previously been used for revisions of `SKILL.md`.
 
+## [3.0.1] — 2026-11-22
+
+### Added
+
+- `pkt info --format {pkt,pka,pks,pkz,pts,pta,legacy}` to explicitly select the
+  container flavour when inspecting files (`pkt_core.cli`).
+- Multilingual README updates (`README.zh-CN.md`, `README_ja.md`) and
+  documentation landing page updates (`docs/index.md`) for `v3.0` headless
+  auto-grading (`pkt grade` / `pkt_core.grade`) and the 146 bundled device
+  templates + 78 hardware module templates.
+
+### Fixed
+
+- **Grader router interface admin state & port-name guessing (`pkt_core.grade`)**:
+  Packet Tracer saves `show running-config` output, which omits `no shutdown` on
+  active interfaces. Configured router interfaces (including subinterfaces,
+  serial ports, loopbacks, and routed Ethernet ports) are now treated as `up`
+  unless an explicit `shutdown` line is present, matching switches and
+  multilayer switches. In addition, `<PORT>` XML port-name guessing no longer
+  invents nonexistent interfaces (such as `FastEthernet0` on routers or 0-based
+  `FastEthernet0/0` on switches) and restricts the `FastEthernet0` host alias to
+  end devices.
+- **Grader missing-subinterface lookup (`pkt_core.grade`)**: Removed the
+  bare leaf-key fallback in `_lookup_actual_value()` so an unconfigured nested
+  interface path (such as `Ports/GigabitEthernet0/1.10/Subnet Mask`) is never
+  falsely credited using another interface's subnet mask or IP address.
+- **`pkt info --no-verify` on damaged containers (`pkt_core.codec.container`)**:
+  When `verify_tag=False` and `fmt=None`, `decode_bytes()` now falls back to
+  `DEFAULT_FORMAT` (`"pkt"`) if tag-based format detection fails, allowing
+  corrupted containers to be inspected.
+- **`PKT_CORE_BACKEND` validation & case-insensitivity (`pkt_core.crypto`)**:
+  Backend names are now matched case-insensitively and validated up front before
+  format detection so invalid values raise a clear `ValueError` instead of being
+  masked as `FormatError`.
+- **Empty legacy payload detection (`pkt_core.codec.container`)**:
+  `_looks_like_legacy()` now accepts a declared `qCompress` uncompressed length
+  of `0`, allowing empty legacy documents (`encode_bytes(b"", "legacy")`) to
+  round-trip cleanly and clarifying `TruncatedFileError` messages on short
+  non-legacy inputs.
+- **Module-resilient port diffing (`pkt_core.diff`)**: `_port_fields()` now keys
+  ports by MAC address (with `#n` disambiguation for shared serial MACs) rather
+  than raw array index so inserting a hardware module does not report every
+  subsequent port as changed.
+
 ## [3.0.0] — 2026-11-21
 
 ### Added

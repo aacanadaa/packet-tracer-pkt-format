@@ -9,7 +9,7 @@ build-backend = "maturin"
 
 [project]
 name = "pkt-core-native"
-version = "3.0.0"
+version = "3.0.1"
 description = "Optional Rust accelerator for pkt-core's crypto hot path (Twofish, Serpent, CAST-256)"
 readme = "README.md"
 requires-python = ">=3.10"
