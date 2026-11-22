@@ -340,6 +340,92 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# pkt grade
+# --------------------------------------------------------------------------
+def cmd_grade(args: argparse.Namespace) -> int:
+    """Headlessly grade one or more .pka / .pkt submissions."""
+    import csv
+    from pkt_core.grade import grade_batch
+
+    cats: list[str] | None = None
+    if args.categories:
+        cats = [c.strip() for c in args.categories.split(",") if c.strip()]
+
+    reports = grade_batch(
+        args.files,
+        against=args.against,
+        pass_threshold=args.pass_threshold,
+        categories=cats,
+        max_workers=args.workers,
+    )
+
+    if args.csv is not None:
+        args.csv.parent.mkdir(parents=True, exist_ok=True)
+        with args.csv.open("w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(
+                [
+                    "target",
+                    "mode",
+                    "passed",
+                    "percentage",
+                    "points_earned",
+                    "points_possible",
+                    "items_passed",
+                    "items_total",
+                    "elapsed_ms",
+                ]
+            )
+            for r in reports:
+                w.writerow(
+                    [
+                        r.target,
+                        r.mode,
+                        r.passed,
+                        r.percentage,
+                        r.points_earned,
+                        r.points_possible,
+                        r.items_passed,
+                        len(r.items),
+                        round(r.elapsed_ms, 2),
+                    ]
+                )
+
+    if args.json:
+        if len(reports) == 1:
+            print(json.dumps(reports[0].as_dict(), indent=2))
+        else:
+            print(
+                json.dumps(
+                    {
+                        "total_submissions": len(reports),
+                        "passed_submissions": sum(1 for r in reports if r.passed),
+                        "average_percentage": round(
+                            sum(r.percentage for r in reports) / max(len(reports), 1), 2
+                        ),
+                        "submissions": [r.as_dict() for r in reports],
+                    },
+                    indent=2,
+                )
+            )
+    else:
+        for i, r in enumerate(reports):
+            if i > 0:
+                print()
+            print(r.summary(show_passed=args.show_passed))
+        if len(reports) > 1:
+            n_pass = sum(1 for r in reports if r.passed)
+            avg_pct = sum(r.percentage for r in reports) / len(reports)
+            total_ms = sum(r.elapsed_ms for r in reports)
+            print(
+                f"\nbatch: {n_pass}/{len(reports)} passed  "
+                f"avg={avg_pct:.1f}%  total_item_time={total_ms:.1f} ms"
+            )
+
+    return 0 if all(r.passed for r in reports) else 1
+
+
+# --------------------------------------------------------------------------
 # CLI wiring
 # --------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
@@ -428,6 +514,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser(
+        "grade",
+        help="headlessly grade .pka or .pkt student submissions",
+    )
+    p.add_argument("files", nargs="+", type=Path, help="submission file(s) (.pka or .pkt)")
+    p.add_argument(
+        "--against",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="master .pka activity or solution .pkt to grade against (tamper-proof)",
+    )
+    p.add_argument(
+        "--pass-threshold",
+        type=float,
+        default=100.0,
+        metavar="PCT",
+        help="minimum percentage required to pass (default: 100.0)",
+    )
+    p.add_argument(
+        "--categories",
+        default=None,
+        help="comma-separated category filter (e.g. Ip,Routing,Switching,Physical,Acl)",
+    )
+    p.add_argument(
+        "--show-passed",
+        action="store_true",
+        help="include passed items in text output (default: show failed items only)",
+    )
+    p.add_argument(
+        "--csv",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="write a CSV gradebook summary to FILE",
+    )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="thread-pool worker count for batch grading",
+    )
+    p.add_argument("--json", action="store_true", help="emit grading report as JSON")
+    p.set_defaults(func=cmd_grade)
 
     return ap
 
