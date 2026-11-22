@@ -308,8 +308,67 @@ class ScoringNode(PktNode):
         return self._text("POINTS")
 
     @property
+    def points_value(self) -> int:
+        """Integer point weight (``<POINTS>``), defaulting to ``0``."""
+        return self._int("POINTS", 0)
+
+    @property
     def value(self) -> str:
         return self._text("VALUE")
+
+    def _name_attr(self, attr: str) -> str:
+        node = self._el.find("NAME")
+        if node is None:
+            return ""
+        return node.get(attr) or ""
+
+    @property
+    def node_value(self) -> str:
+        """Expected grading value stored in ``<NAME nodeValue="...">``."""
+        return self._name_attr("nodeValue")
+
+    @property
+    def check_type(self) -> int:
+        """Grading mode stored in ``<NAME checkType="...">`` (0=compare, 1/2=active/custom)."""
+        raw = self._name_attr("checkType").strip()
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+
+    @property
+    def eclass(self) -> int:
+        """Item class stored in ``<NAME eclass="...">``."""
+        raw = self._name_attr("eclass").strip()
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+
+    @property
+    def head_node(self) -> bool:
+        """True when ``<NAME headNode="true">``."""
+        return self._name_attr("headNode").strip().lower() in ("true", "1", "yes")
+
+    @property
+    def incorrect_feedback(self) -> str:
+        """Feedback message when this assessment item fails."""
+        return self._name_attr("incorrectFeedback")
+
+    @property
+    def override_db_grading(self) -> bool:
+        """True when ``<NAME overrideDBGrading="true">``."""
+        return self._name_attr("overrideDBGrading").strip().lower() in ("true", "1", "yes")
+
+    @property
+    def variable_enabled(self) -> bool:
+        """True when ``<NAME variableEnabled="true">``."""
+        return self._name_attr("variableEnabled").strip().lower() in ("true", "1", "yes")
+
+    @property
+    def variable_name(self) -> str:
+        """Variable pool reference stored in ``<NAME variableName="...">``."""
+        return self._name_attr("variableName")
 
     @property
     def children(self) -> list["ScoringNode"]:
