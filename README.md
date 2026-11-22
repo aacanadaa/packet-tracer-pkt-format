@@ -1,8 +1,8 @@
 # packet-tracer-pkt-format
 
-Read, write, and generate Cisco Packet Tracer `.pkt` labs and `.pka` activities offline, without Packet Tracer installed.
+Read, write, generate, and auto-grade Cisco Packet Tracer `.pkt` labs and `.pka` activities offline, without Packet Tracer installed.
 
-This repo documents the Packet Tracer file format (both legacy PT 4.1–5.3.2 and modern PT 5.3.3–9.0.1 containers) and provides a Python library (`pkt_core`) that round-trips unchanged files byte for byte, CLI (`pkt`), and offline lab builder that writes devices, modules, cables, IOS configs, PC IPs, instructions, activity-wizard passwords, and scoring trees directly to `.pkt`/`.pka` files.
+This repo documents the Packet Tracer file format (both legacy PT 4.1–5.3.2 and modern PT 5.3.3–9.0.1 containers) and provides a Python library (`pkt_core`) that round-trips unchanged files byte for byte, a CLI (`pkt`), a headless `.pka`/`.pkt` auto-grader (`pkt grade`), and an offline lab builder that writes devices, modules, cables, IOS configs, PC IPs, instructions, activity-wizard passwords, and scoring trees directly to `.pkt`/`.pka` files.
 
 <img src="https://raw.githubusercontent.com/aacanadaa/packet-tracer-pkt-format/main/docs/img/pt_full_topology.png" alt="392-device Packet Tracer enterprise topology generated from code and opened in Packet Tracer 9.0.1" width="100%">
 
@@ -55,7 +55,7 @@ for dev in lab.devices:
 
 ## Building labs offline
 
-`pkt_core.Lab` bundles a seed document and 137 device templates, so you can build `.pkt` files right after `pip install`:
+`pkt_core.Lab` bundles a seed document, 146 device templates, and 78 hardware module templates, so you can build `.pkt` files right after `pip install`:
 
 ```python
 from pkt_core import Lab
@@ -227,7 +227,7 @@ Additional authoring scripts live in [`tools/`](tools) (see [`docs/SCENE_GRAPH.m
 - `tools/build_wired_lab.py` — harvest and auto-wire ethernet devices to core switches.
 - `tools/build_configured_lab.py` — build a configured multi-router lab (`PC1-SW1-R1=R2-SW2-PC2`).
 - `tools/activity.py` + `tools/scoring.py` — author `.pka` activities (HTML instructions, wizard password, permissions, initial/answer networks, scoring tree).
-- `tools/make_scored_lab.py` — build a scored `.pka` from a JSON topology spec using the bundled 137 device templates, 78 module templates, and 14 scoring shapes.
+- `tools/make_scored_lab.py` — build a scored `.pka` from a JSON topology spec using the bundled 146 device templates, 78 module templates, and 14 scoring shapes.
 - `tools/harvest_library.py` — extend the template library from your own `.pkt`/`.pka` files.
 - `demo/build_demo.py` — small 6-device OSPF walkthrough that runs from a plain `pip install`.
 
