@@ -390,7 +390,8 @@ class Lab(PktNode):
         if index < 0 or index >= len(pkts):
             return None
         target = pkts[index]
-        doc = XmlDocument(root=target, raw=b"", children=[target])
+        raw = target.raw if target.raw is not None else target.to_bytes()
+        doc = XmlDocument(data=raw, root_start=0, _root=target)
         return Lab(doc)
 
     @property
