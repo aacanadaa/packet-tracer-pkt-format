@@ -7,6 +7,7 @@ import csv
 import json
 from pathlib import Path
 import sys
+from typing import Any, Sequence
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -16,6 +17,7 @@ from pkt_core import (
     GradeItem,
     GradeReport,
     Lab as BuilderLab,
+    decode,
     encode_bytes,
     grade_batch,
     grade_bytes,
@@ -23,7 +25,8 @@ from pkt_core import (
     grade_lab,
 )
 from pkt_core.cli.main import main as cli_main
-from pkt_core.models import Lab as ModelLab
+from pkt_core.grade import _extract_network_state
+from pkt_core.models import Device, Lab as ModelLab
 
 
 def _build_topo_xml(*, configured: bool, wrong_ip: bool = False, extra_features: bool = False) -> bytes:
@@ -427,3 +430,141 @@ def test_batch_grading_and_cli_grade(
     batch_json = json.loads(capsys.readouterr().out)
     assert batch_json["total_submissions"] == 2
     assert batch_json["passed_submissions"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# interface admin state & port-name guessing
+# --------------------------------------------------------------------------- #
+SAMPLE_LAB = Path(__file__).resolve().parent.parent / "corpus" / "samples" / "sample_lab.pkt"
+requires_sample_lab = pytest.mark.skipif(
+    not SAMPLE_LAB.exists(), reason="committed sample_lab.pkt is missing"
+)
+
+R1_SUBIF_10 = (
+    "interface GigabitEthernet0/1.10",
+    " encapsulation dot1Q 10",
+    " ip address 10.10.10.1 255.255.255.0",
+    "!",
+)
+
+
+def _sample_lab_with_r1_lines(lines: Sequence[str]) -> ModelLab:
+    """``sample_lab.pkt`` with ``lines`` added to R1's running config, right
+    before ``interface GigabitEthernet0/2``."""
+    xml = decode(SAMPLE_LAB).xml
+    rc_start = xml.index(b"<RUNNINGCONFIG>", xml.index(b">R1</NAME>"))
+    rc_end = xml.index(b"</RUNNINGCONFIG>", rc_start)
+    at = xml.index(b"<LINE>interface GigabitEthernet0/2</LINE>", rc_start, rc_end)
+    added = b"".join(b"<LINE>" + line.encode("utf-8") + b"</LINE>" for line in lines)
+    return ModelLab.from_bytes(xml[:at] + added + xml[at:])
+
+
+def _stock_device_lab(model: str, **kwargs: Any) -> ModelLab:
+    """A one-device lab (device name ``DUT``) from the bundled ``model`` template."""
+    blab = BuilderLab()
+    blab.prune_seed_devices()
+    blab.add_device(model, "DUT", 100, 100, **kwargs)
+    return ModelLab.from_bytes(ET.tostring(blab.base, encoding="utf-8"))
+
+
+def _config_interfaces(dev: Device) -> set[str]:
+    return {
+        line.split()[1].decode("utf-8")
+        for line in dev.running_config
+        if line.startswith(b"interface ")
+    }
+
+
+@requires_sample_lab
+def test_running_config_interface_without_shutdown_line_is_up() -> None:
+    """PT saves `show running-config` output, which never prints `no shutdown`."""
+    lab = _sample_lab_with_r1_lines(
+        R1_SUBIF_10
+        + (
+            "interface GigabitEthernet0/1.20",
+            " encapsulation dot1Q 20",
+            " ip address 10.20.20.1 255.255.255.0",
+            " shutdown",
+            "!",
+        )
+    )
+    r1 = _extract_network_state(lab.network)["R1"].flat_props
+    assert r1["Ports/GigabitEthernet0/1.10/IP Address"] == "10.10.10.1"
+    assert r1["Ports/GigabitEthernet0/1.10/Port Up"] == "1"
+    # an explicit `shutdown` still wins
+    assert r1["Ports/GigabitEthernet0/1.20/Port Up"] == "0"
+    assert r1["Ports/GigabitEthernet0/2/Port Up"] == "0"
+    assert r1["Ports/Vlan1/Port Up"] == "0"
+
+
+@pytest.mark.parametrize(
+    ("model", "iface", "ip", "up"),
+    [
+        ("1841", "Serial0/0/0", "10.0.0.1", "1"),
+        ("1841", "Loopback0", "1.1.1.1", "1"),
+        ("1841", "FastEthernet0/0", "", "0"),  # template config: ` shutdown`
+        ("2811", "FastEthernet0/0", "5.1.1.1", "1"),
+        ("ISR4331", "GigabitEthernet0/0/0", "192.168.1.1", "1"),
+    ],
+)
+def test_stock_router_interfaces_are_up_unless_shut_down(
+    model: str, iface: str, ip: str, up: str
+) -> None:
+    flat = _extract_network_state(_stock_device_lab(model).network)["DUT"].flat_props
+    assert flat[f"Ports/{iface}/IP Address"] == ip
+    assert flat[f"Ports/{iface}/Port Up"] == up
+
+
+@pytest.mark.parametrize("model", ["1841", "2811", "ISR4331", "2960-24TT", "3560-24PS"])
+def test_port_name_guessing_never_invents_interfaces(model: str) -> None:
+    """A <PORT> carries no name, so a guessed one must not create an interface
+    the device does not have (e.g. FastEthernet0 on a router, or the 0-based
+    FastEthernet0/0 on a 2960, whose ports start at Fa0/1)."""
+    # pc_ip puts an address on the first <PORT>, which is what triggers a guess
+    lab = _stock_device_lab(model, pc_ip=("10.9.9.9", "255.255.255.0", "10.9.9.1"))
+    dev = lab.network.devices[0]
+    state = _extract_network_state(lab.network)["DUT"]
+    assert set(state.interfaces) <= _config_interfaces(dev)
+
+
+def test_router_port_guess_uses_slot_numbering() -> None:
+    """A router's first FastEthernet <PORT> is FastEthernet0/0, not FastEthernet0.
+
+    The config only says `ip address dhcp`, so the leased address held on the
+    2811 template's first <PORT> (5.1.1.1) is the one fact the XML adds.
+    """
+    lab = _stock_device_lab(
+        "2811",
+        ios_config=["hostname DUT", "interface FastEthernet0/0", " ip address dhcp", "!", "end"],
+    )
+    state = _extract_network_state(lab.network)["DUT"]
+    assert state.flat_props["Ports/FastEthernet0/0/IP Address"] == "5.1.1.1"
+    assert state.flat_props["Ports/FastEthernet0/0/Port Up"] == "1"
+    assert set(state.interfaces) == {"FastEthernet0/0"}
+
+
+@requires_sample_lab
+def test_fastethernet0_alias_is_only_for_end_devices() -> None:
+    states = _extract_network_state(ModelLab.from_bytes(decode(SAMPLE_LAB).xml).network)
+    assert states["PC-A"].flat_props["Ports/FastEthernet0/IP Address"] == "192.168.1.10"
+    assert states["Server"].flat_props["Ports/FastEthernet0/IP Address"] == "192.168.4.10"
+    for router in ("R1", "R2"):
+        assert "FastEthernet0" not in states[router].interfaces
+
+
+# --------------------------------------------------------------------------- #
+# no credit for an interface the student never configured
+# --------------------------------------------------------------------------- #
+@requires_sample_lab
+def test_missing_subinterface_is_not_credited_from_another_interface() -> None:
+    solution = _sample_lab_with_r1_lines(R1_SUBIF_10)
+    student = ModelLab.from_bytes(decode(SAMPLE_LAB).xml)
+    assert grade_lab(solution, against=solution).percentage == 100.0
+
+    report = grade_lab(student, against=solution)
+    prefix = "R1/Ports/GigabitEthernet0/1.10/"
+    subif = {it.path[len(prefix):]: it for it in report.items if it.path.startswith(prefix)}
+    assert set(subif) == {"IP Address", "Subnet Mask", "Port Up"}
+    for leaf, item in subif.items():
+        assert not item.passed, f"{leaf!r} credited for an interface the student never made"
+        assert item.actual == "", f"{leaf!r} shows another interface's value"

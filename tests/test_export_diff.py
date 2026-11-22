@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Sequence
 
 import pytest
 
@@ -179,3 +180,46 @@ def test_diff_reports_config_line_changes() -> None:
     assert "hostname CORE" in text
     # control bytes must be compared as bytes, never normalised away
     assert "banner motd" not in text, "unchanged banner line must not be reported"
+
+
+def _router_xml(*modules: Sequence[tuple[str, str]]) -> bytes:
+    """One router whose <MODULE>s hold ``(port type, MAC)`` ports, in order."""
+    mods = "".join(
+        "<MODULE>"
+        + "".join(
+            f"<PORT><TYPE>{ptype}</TYPE><MACADDRESS>{mac}</MACADDRESS></PORT>"
+            for ptype, mac in ports
+        )
+        + "</MODULE>"
+        for ports in modules
+    )
+    return (
+        "<PACKETTRACER5><NETWORK><DEVICES><DEVICE><ENGINE>"
+        '<TYPE model="2911" customModel="">Router</TYPE><NAME>R1</NAME>'
+        f"{mods}</ENGINE></DEVICE></DEVICES></NETWORK></PACKETTRACER5>"
+    ).encode("utf-8")
+
+
+def test_diff_matches_ports_by_mac() -> None:
+    """Adding a module must not renumber, and so "change", every later port."""
+    gi = "eCopperGigabitEthernet"
+    # serial ports share Gi0/0's MAC, as R2's do in corpus/samples/sample_lab.pkt
+    onboard = [(gi, "0001.0001.0001"), (gi, "0001.0001.0002"), ("eSmartSerial", "0001.0001.0001")]
+    before = Lab.from_bytes(_router_xml(onboard))
+
+    with_module = Lab.from_bytes(_router_xml([(gi, "0002.0002.0001")], onboard))
+    [dev] = diff_labs(before, with_module).devices
+    assert list(dev.port_changes) == ["0002.0002.0001"]
+    assert dev.port_changes["0002.0002.0001"][0] == ""  # added, nothing else moved
+
+    # a duplicate MAC gets its own counted key instead of overwriting the first
+    retyped = [(gi, "0001.0001.0001"), (gi, "0001.0001.0002"), ("eSerial", "0001.0001.0001")]
+    [dev] = diff_labs(before, Lab.from_bytes(_router_xml(retyped))).devices
+    assert list(dev.port_changes) == ["0001.0001.0001 #2"]
+
+    # a port without a MAC falls back to its position
+    [dev] = diff_labs(
+        Lab.from_bytes(_router_xml([("eSmartSerial", "")])),
+        Lab.from_bytes(_router_xml([("eSerial", "")])),
+    ).devices
+    assert set(dev.port_changes) == {"0:eSmartSerial", "0:eSerial"}
