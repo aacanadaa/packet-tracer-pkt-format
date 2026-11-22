@@ -68,8 +68,6 @@ from pkt_core.models.lab import Lab
 from pkt_core.models.network import Device
 from pkt_core.models.services import (
     IDENTITY_FIELDS,
-    IDENTITY_LABELS,
-    ZONE_KEY_FIELDS,
     Identity,
     zone_identity,
 )

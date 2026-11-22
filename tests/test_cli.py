@@ -170,6 +170,28 @@ def test_truncated_input_raises_cleanly() -> None:
         decode_bytes(b"\x00" * 8)
 
 
+def test_mistyped_backend_is_reported_not_hidden_by_detection(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("PKT_CORE_BACKEND", "bogus")
+    with pytest.raises(ValueError, match="PKT_CORE_BACKEND='bogus'"):
+        decode_bytes(LAB.read_bytes())
+    assert main(["info", str(LAB)]) == 2
+    err = capsys.readouterr().err
+    assert "PKT_CORE_BACKEND='bogus'" in err
+    assert "no known format" not in err
+
+
+def test_backend_name_is_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pkt_core.crypto.ciphers import Twofish, get_cipher
+
+    monkeypatch.setenv("PKT_CORE_BACKEND", "Pure")
+    assert decode(LAB).format_name == "pkt"
+    assert type(get_cipher("twofish", b"\x00" * 16)) is Twofish
+    monkeypatch.delenv("PKT_CORE_BACKEND")
+    assert type(get_cipher("twofish", b"\x00" * 16, backend="PURE")) is Twofish  # type: ignore[arg-type]
+
+
 def test_root_tag_helper() -> None:
     assert root_tag(b"<PACKETTRACER5><X/></PACKETTRACER5>") == "PACKETTRACER5"
     assert root_tag(b"  <A b='1'>") == "A"
@@ -193,6 +215,66 @@ def test_cli_info_json(capsys: pytest.CaptureFixture[str]) -> None:
     payload = json.loads(out[out.index("{"):])
     assert payload["root_tag"] == "PACKETTRACER5_ACTIVITY"
     assert payload["is_activity"] is True
+
+
+def _flip_bit(tmp_path: Path, offset: int) -> Path:
+    raw = bytearray(LAB.read_bytes())
+    raw[offset] ^= 0x01
+    out = tmp_path / f"flipped_at_{offset}.pkt"
+    out.write_bytes(bytes(raw))
+    return out
+
+
+def test_no_verify_gets_past_tag_based_detection(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Detection only accepts a flavour whose tag verifies, so a damaged file
+    must fall back to the default flavour when verification is off."""
+    from pkt_core.errors import CompressionError, FormatError
+
+    damaged = _flip_bit(tmp_path, 100)
+
+    # verification on (the default): unchanged, detection rejects the file
+    with pytest.raises(FormatError, match="no known format authenticated"):
+        decode_bytes(damaged.read_bytes())
+    assert main(["info", str(damaged)]) == 2
+    assert "FormatError: no known format authenticated" in capsys.readouterr().err
+
+    # --no-verify decrypts as "pkt"; byte 100 lies in the ciphertext, so the
+    # flipped bit surfaces one layer down, in the zlib stream
+    with pytest.raises(CompressionError, match="zlib inflate failed"):
+        decode_bytes(damaged.read_bytes(), verify_tag=False)
+    assert main(["info", "--no-verify", str(damaged)]) == 2
+    err = capsys.readouterr().err
+    assert "error: CompressionError: zlib inflate failed" in err
+    assert "no known format" not in err
+
+
+def test_cli_info_no_verify_decodes_a_file_whose_tag_is_damaged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    damaged = _flip_bit(tmp_path, 0)  # file byte 0 is in the (reversed) EAX tag
+    assert main(["info", str(damaged)]) == 2
+    capsys.readouterr()
+
+    assert main(["info", "--no-verify", str(damaged)]) == 0
+    out = capsys.readouterr().out
+    assert "format      : pkt" in out
+    assert "root tag    : PACKETTRACER5" in out
+    assert decode_bytes(damaged.read_bytes(), verify_tag=False).xml == decode(LAB).xml
+
+
+def test_cli_info_format_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    damaged = _flip_bit(tmp_path, 0)
+    assert main(["info", "--format", "pkt", "--no-verify", str(damaged)]) == 0
+    assert "format      : pkt" in capsys.readouterr().out
+    # a forced flavour is still verified unless --no-verify is given
+    assert main(["info", "--format", "pkt", str(damaged)]) == 2
+    assert "IntegrityError" in capsys.readouterr().err
+    assert main(["info", "--format", "pta", str(LAB)]) == 2
+    assert "IntegrityError" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["info", "--format", "nope", str(LAB)])
 
 
 def test_cli_unpack_and_pack_roundtrip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

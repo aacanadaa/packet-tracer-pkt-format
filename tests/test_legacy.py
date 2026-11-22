@@ -137,6 +137,21 @@ def test_detect_format_rejects_too_short() -> None:
         detect_format(b"\x00\x01")
 
 
+def test_empty_legacy_document_roundtrips() -> None:
+    """An empty document declares a qCompress length of 0, which is valid."""
+    sealed = encode_bytes(b"", "legacy")
+    assert detect_format(sealed) == "legacy"
+    again = decode_bytes(sealed)
+    assert again.xml == b""
+    assert again.format_name == "legacy"
+
+
+def test_short_non_container_error_says_legacy_was_ruled_out() -> None:
+    # 12 bytes: too short for a modern container, and not a legacy one either
+    with pytest.raises(TruncatedFileError, match="not a legacy container"):
+        decode_bytes(b"\x00" * 12)
+
+
 # --------------------------------------------------------------------------
 # Real corpus (runs when corpus/ has been fetched)
 # --------------------------------------------------------------------------

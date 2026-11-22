@@ -110,9 +110,15 @@ def _device_fields(dev: Device) -> dict[str, str]:
 
 
 def _port_fields(dev: Device) -> dict[str, str]:
+    # Keyed by MAC so adding a module does not renumber every later port; only
+    # MAC-less ports fall back to position. MACs can repeat (PT gives serial
+    # ports the first Ethernet MAC), so repeats get a counted key.
     out: dict[str, str] = {}
+    counts: dict[str, int] = {}
     for i, port in enumerate(dev.ports):
-        out[f"{i}:{port.mac_address or port.type}"] = (
+        base = port.mac_address or f"{i}:{port.type}"
+        n = counts[base] = counts.get(base, 0) + 1
+        out[base if n == 1 else f"{base} #{n}"] = (
             f"{port.type} bw={port.bandwidth} duplex={port.full_duplex} mac={port.mac_address}"
         )
     return out

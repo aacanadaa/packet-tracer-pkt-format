@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final, Iterable, Sequence
+from typing import Final, Sequence
 
 from pkt_core.codec.qcompress import qcompress, quncompress
 from pkt_core.crypto.keys import FORMATS, FormatName, FormatSpec, get_format
@@ -154,8 +154,9 @@ def _looks_like_legacy(raw: bytes) -> bool:
 
     Family L is ``layer_b -> qCompress -> zlib``, so deobfuscating yields a
     4-byte big-endian uncompressed length followed by a zlib stream. Two checks
-    gate it: a plausible length and a real zlib magic. The length is then
-    verified exactly during inflate, which is what actually proves it.
+    gate it: a plausible length (0 included: an empty document) and a real zlib
+    magic. The length is then verified exactly during inflate, which is what
+    actually proves it.
     """
     n = len(raw)
     if n < _MIN_LEGACY_SIZE:
@@ -163,7 +164,7 @@ def _looks_like_legacy(raw: bytes) -> bool:
     # Only the first 6 bytes of layer_b(raw) are needed: raw[i] ^ ((n - i) & 0xFF)
     head = bytes(raw[i] ^ ((n - i) & 0xFF) for i in range(_MIN_LEGACY_SIZE))
     declared = int.from_bytes(head[:4], "big")
-    if declared == 0 or declared > _MAX_LEGACY_PLAUSIBLE:
+    if declared > _MAX_LEGACY_PLAUSIBLE:
         return False
     return head[4:6] in _ZLIB_MAGICS
 
@@ -215,7 +216,8 @@ def _detect_format(
         )
     if len(raw) < _MIN_MODERN_SIZE and candidates is None:
         raise TruncatedFileError(
-            f"file is {len(raw)} bytes; a modern container needs at least {_MIN_MODERN_SIZE} bytes"
+            f"file is {len(raw)} bytes; it is not a legacy container, and a modern "
+            f"container needs at least {_MIN_MODERN_SIZE} bytes"
         )
 
     raise FormatError(
@@ -268,7 +270,9 @@ def decode_bytes(
             the AEAD tag.
         verify_tag: When ``True`` (default) a failed tag raises. When ``False``
             the decrypted bytes are returned anyway — useful for forensics on
-            damaged files, and only reachable explicitly.
+            damaged files, and only reachable explicitly. Detection itself is
+            the tag check, so with ``fmt=None`` a file no flavour authenticates
+            is opened as :data:`DEFAULT_FORMAT`.
 
     Returns:
         A :class:`Container` with the inflated XML.
@@ -285,7 +289,16 @@ def decode_bytes(
         )
 
     decoded_a: bytes | None = layer_a(raw) if len(raw) >= _MIN_MODERN_SIZE else None
-    name = fmt if fmt is not None else _detect_format(raw, decoded_a=decoded_a)
+    if fmt is not None:
+        name = fmt
+    else:
+        try:
+            name = _detect_format(raw, decoded_a=decoded_a)
+        except FormatError:
+            # A damaged file authenticates as nothing; unverified, assume the default.
+            if verify_tag or decoded_a is None:
+                raise
+            name = DEFAULT_FORMAT
     spec = _resolve_format(name)
 
     if spec.is_legacy:

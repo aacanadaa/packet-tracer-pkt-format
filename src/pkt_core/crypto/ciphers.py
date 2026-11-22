@@ -446,6 +446,26 @@ def _gcrypt_cipher(name: str, key: bytes) -> BlockCipher | None:
         return None
 
 
+def _resolve_backend(backend: str | None = None) -> str:
+    """``backend`` if given, else ``PKT_CORE_BACKEND``, else ``"auto"`` (any case).
+
+    Raises:
+        ValueError: naming the unrecognised value and where it came from.
+    """
+    if backend:
+        source, value = "backend", backend
+    else:
+        source, value = "PKT_CORE_BACKEND", os.environ.get("PKT_CORE_BACKEND", "")
+        if not value:
+            return "auto"
+    choice = value.strip().lower()
+    if choice not in ("auto", "rust", "gcrypt", "pure"):
+        raise ValueError(
+            f"{source}={value!r} is not a known backend; expected auto, rust, gcrypt or pure"
+        )
+    return choice
+
+
 def get_cipher(
     name: str,
     key: bytes,
@@ -463,7 +483,7 @@ def get_cipher(
         backend: Pin a specific backend — ``"rust"``, ``"gcrypt"`` or
             ``"pure"`` — instead of the ``"auto"`` preference order.  When
             ``None`` (default) the ``PKT_CORE_BACKEND`` environment variable is
-            consulted, then ``"auto"``.
+            consulted, then ``"auto"``. Names are matched case-insensitively.
 
     Raises:
         UnsupportedCipherError: if no backend can provide the cipher.
@@ -475,11 +495,7 @@ def get_cipher(
     if len(key) not in CIPHER_KEY_SIZES[name]:
         raise ValueError(f"{name} does not accept a {len(key)}-byte key")
 
-    choice: Backend | str = backend or os.environ.get("PKT_CORE_BACKEND") or "auto"
-    if choice not in ("auto", "rust", "gcrypt", "pure"):
-        raise ValueError(
-            f"unknown backend {choice!r}; expected auto, rust, gcrypt or pure"
-        )
+    choice = _resolve_backend(backend)
 
     # Accelerators first: this is on the hot path for every container
     # operation and the backends are proven byte-identical in the test suite.

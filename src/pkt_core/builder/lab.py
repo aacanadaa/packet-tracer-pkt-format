@@ -58,8 +58,8 @@ import re
 import sys
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Iterator, Sequence
-from typing import Any, NamedTuple
+from collections.abc import Iterator, Sequence
+from typing import NamedTuple
 
 from pkt_core.codec.container import decode, decode_bytes, encode
 from pkt_core.resources import load_device_templates, load_network_seed

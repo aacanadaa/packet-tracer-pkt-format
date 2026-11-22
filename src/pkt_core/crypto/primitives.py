@@ -169,8 +169,11 @@ def _open_cipher(cipher_name: str, key: bytes) -> "BlockCipher":
     # Imported lazily so the AEAD maths does not hard-depend on a particular
     # cipher backend: the backend is pluggable (pure Python or an accelerator),
     # and this module only needs an encrypt-block oracle.
-    from pkt_core.crypto.ciphers import get_cipher
+    from pkt_core.crypto.ciphers import _resolve_backend, get_cipher
 
+    # A mistyped PKT_CORE_BACKEND is a configuration error, not an unavailable
+    # cipher: raise it before the conversion below, which detection swallows.
+    _resolve_backend()
     try:
         cipher: BlockCipher = get_cipher(cipher_name, key)
     except (KeyError, ValueError) as exc:

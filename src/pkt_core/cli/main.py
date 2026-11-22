@@ -59,7 +59,7 @@ def cmd_info(args: argparse.Namespace) -> int:
     """Decrypt just enough to describe the file."""
     path: Path = args.file
     raw = path.read_bytes()
-    container = decode_bytes(raw, verify_tag=not args.no_verify)
+    container = decode_bytes(raw, getattr(args, "format", None), verify_tag=not args.no_verify)
 
     if args.json:
         payload: dict[str, object] = {
@@ -439,6 +439,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("info", help="describe a container")
     p.add_argument("file", type=Path)
     p.add_argument("--no-verify", action="store_true", help="skip AEAD tag check")
+    p.add_argument(
+        "--format", default=None, choices=sorted(FORMATS),
+        help="force a container flavour instead of detecting it",
+    )
     p.add_argument("--json", action="store_true", help="print machine-readable JSON output")
     p.set_defaults(func=cmd_info)
 

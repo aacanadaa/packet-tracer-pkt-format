@@ -93,6 +93,11 @@ _CLOCK_RE = re.compile(r"^clock\s+rate\s+(\d+)\s*$", re.I)
 _ENCAP_DOT1Q_RE = re.compile(r"^encapsulation\s+dot1Q\s+(\d+)(?:\s+native)?\s*$", re.I)
 _ACCESS_GROUP_RE = re.compile(r"^ip\s+access-group\s+(\S+)\s+(in|out)\s*$", re.I)
 
+#: Host kinds whose NICs Packet Tracer names without a slot (``FastEthernet0``).
+_END_DEVICE_KINDS: frozenset[str] = frozenset(
+    {"pc", "laptop", "server", "tabletpc", "pda", "printer"}
+)
+
 
 # --------------------------------------------------------------------------- #
 # data models
@@ -309,6 +314,18 @@ def _canonical_port_name(raw: str) -> str:
     return s
 
 
+def _declared_interfaces(rc_lines: Sequence[bytes]) -> set[str]:
+    """Canonical names of the ``interface`` stanzas in a running config."""
+    names: set[str] = set()
+    for raw_line in rc_lines:
+        if raw_line.startswith(b" "):
+            continue
+        m = _IFACE_RE.match(raw_line.decode("utf-8", "replace").strip())
+        if m:
+            names.add(_canonical_port_name(m.group(1)))
+    return names
+
+
 def _extract_network_state(net: Network | None) -> dict[str, _DeviceState]:
     if net is None:
         return {}
@@ -365,38 +382,46 @@ def _extract_device_state(
     ip_routing = dev.kind.lower() in ("router", "multilayerswitch")
     ipv6_routing = False
 
-    # 1. Hardware / end-device XML ports
-    eth_idx = 0
+    # 1. Hardware / end-device XML ports.  A <PORT> carries no interface name,
+    #    so one is guessed from its media type, and a guess must never invent
+    #    an interface.  End devices follow PT's host naming (FastEthernet0).
+    #    Elsewhere a guess only counts if the running config declares it, and
+    #    switch ports are not guessed at all: the config lists every one.
+    kind = dev.kind.lower()
+    is_end_device = kind in _END_DEVICE_KINDS
+    declared: set[str] = (
+        set() if kind in ("switch", "multilayerswitch") else _declared_interfaces(dev.running_config)
+    )
+    slot = "" if is_end_device else "0/"
     fa_idx = 0
     gi_idx = 0
+    host_nic: _IfaceState | None = None
     for p in dev.ports:
         p_type = p.type
+        guess_name = ""
         if "FastEthernet" in p_type:
-            guess_name = (
-                f"FastEthernet0/{fa_idx}"
-                if dev.kind.lower() in ("switch", "multilayerswitch")
-                else f"FastEthernet{fa_idx}"
-            )
+            guess_name = f"FastEthernet{slot}{fa_idx}"
             fa_idx += 1
         elif "GigabitEthernet" in p_type:
-            guess_name = f"GigabitEthernet0/{gi_idx}"
+            guess_name = f"GigabitEthernet{slot}{gi_idx}"
             gi_idx += 1
-        else:
-            guess_name = f"Port{eth_idx}"
-            eth_idx += 1
+        if not is_end_device and guess_name not in declared:
+            guess_name = ""
         cfg = p.config
-        if cfg.ip_address and cfg.ip_address != "0.0.0.0":
+        if guess_name and cfg.ip_address and cfg.ip_address != "0.0.0.0":
             st = ifaces.setdefault(guess_name, _IfaceState(name=guess_name))
             st.ip = cfg.ip_address
             st.mask = cfg.subnet_mask
             st.shutdown = not p.power
-            # Also alias FastEthernet0 for single-NIC PCs/Servers
-            if "FastEthernet0" not in ifaces:
-                ifaces["FastEthernet0"] = st
+            if host_nic is None:
+                host_nic = st
         if cfg.gateway and cfg.gateway != "0.0.0.0" and not default_gw:
             default_gw = cfg.gateway
         if cfg.dns and cfg.dns != "0.0.0.0" and not dns_srv:
             dns_srv = cfg.dns
+    # Also alias FastEthernet0 for single-NIC hosts, but only where it exists
+    if is_end_device and host_nic is not None and fa_idx > 0:
+        ifaces.setdefault("FastEthernet0", host_nic)
 
     # 2. Running-config single-pass parser
     rc_lines = dev.running_config
@@ -555,8 +580,10 @@ def _extract_device_state(
         if cur_dhcp_pool and dhcp_net:
             dhcp_pools[cur_dhcp_pool] = (dhcp_net, dhcp_mask, dhcp_gw)
 
-    # Switch ports default to up unless explicitly shut down in config
-    if dev.kind.lower() in ("switch", "multilayerswitch"):
+    # PT saves `show running-config` output, which prints `shutdown` but never
+    # `no shutdown`: a declared interface is up unless shut down (Vlan SVIs aside).
+    # Every interface on these kinds is config-declared (see the guessing above).
+    if kind in ("router", "switch", "multilayerswitch"):
         for st in ifaces.values():
             if not st.has_shutdown_cmd and not st.name.lower().startswith("vlan"):
                 st.shutdown = False
@@ -991,10 +1018,10 @@ def _lookup_actual_value(state: _DeviceState | None, path_key: str) -> str:
     if path_key.startswith("AAA/Clients/"):
         cip = path_key[len("AAA/Clients/") :]
         return state.aaa_clients.get(cip, "")
-    # Fallback: match by leaf key (e.g. tools/scoring.py overrides 'IP Address' or 'Subnet Mask')
-    leaf = path_key.rsplit("/", 1)[-1]
-    if leaf in state.flat_props:
-        return state.flat_props[leaf]
+    # No leaf-key fallback: a top-level key (no "/") was already looked up above,
+    # and a nested one the student lacks (e.g. "Ports/Gi0/1.10/Subnet Mask") must
+    # stay missing -- its leaf ("Subnet Mask") would read another interface.
+    # tools/scoring.py trees only use top-level keys or full "Ports/<iface>/..." paths.
     return ""
 
 

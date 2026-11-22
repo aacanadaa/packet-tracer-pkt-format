@@ -28,7 +28,6 @@ from __future__ import annotations
 from typing import ClassVar
 
 from pkt_core.models.base import PktNode
-from pkt_core.xml.nodes import XmlElement
 
 __all__ = [
     "PortConfig",
