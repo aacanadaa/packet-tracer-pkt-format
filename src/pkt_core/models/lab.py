@@ -332,11 +332,101 @@ class Lab(PktNode):
 
     @property
     def scoring_tree(self) -> list[ScoringNode]:
-        """Root nodes of the activity grading tree, if this is an activity."""
+        """Root nodes of the activity grading tree (``<COMPARISONS>``)."""
         for section in self.activity_sections:
             if section.tag == "COMPARISONS":
                 return section.nodes
         return []
+
+    @property
+    def initial_scoring_tree(self) -> list[ScoringNode]:
+        """Root nodes of the activity initial setup tree (``<INITIALSETUP>``)."""
+        for section in self.activity_sections:
+            if section.tag == "INITIALSETUP":
+                return section.nodes
+        return []
+
+    @property
+    def embedded_networks(self) -> list[Network]:
+        """All ``<NETWORK>`` blocks embedded in the document.
+
+        A plain ``.pkt`` file returns a 1-element list. A ``.pka`` activity
+        embeds three ``<PACKETTRACER5>`` blocks in order:
+        ``[0]`` working/student network, ``[1]`` initial network, and
+        ``[2]`` answer network.
+        """
+        if not self.is_activity:
+            net = self.network
+            return [net] if net is not None else []
+        out: list[Network] = []
+        for pkt in self._el.find_all("PACKETTRACER5"):
+            net_el = pkt.find("NETWORK")
+            if net_el is not None:
+                out.append(Network.from_element(net_el))
+        return out
+
+    @property
+    def working_network(self) -> Network | None:
+        """The current/working ``<NETWORK>`` (index 0 in a ``.pka``, or the sole network in a ``.pkt``)."""
+        nets = self.embedded_networks
+        return nets[0] if nets else self.network
+
+    @property
+    def initial_network(self) -> Network | None:
+        """The initial/reset ``<NETWORK>`` of a ``.pka`` activity (index 1), or ``None``."""
+        nets = self.embedded_networks
+        return nets[1] if len(nets) >= 2 else None
+
+    @property
+    def answer_network(self) -> Network | None:
+        """The solution/answer ``<NETWORK>`` of a ``.pka`` activity (index 2), or ``None``."""
+        nets = self.embedded_networks
+        return nets[2] if len(nets) >= 3 else None
+
+    def _embedded_pkt_lab(self, index: int) -> "Lab | None":
+        if not self.is_activity:
+            return None
+        pkts = self._el.find_all("PACKETTRACER5")
+        if index < 0 or index >= len(pkts):
+            return None
+        target = pkts[index]
+        raw = target.raw if target.raw is not None else target.to_bytes()
+        doc = XmlDocument(data=raw, root_start=0, _root=target)
+        return Lab(doc)
+
+    @property
+    def working_lab(self) -> "Lab":
+        """A :class:`Lab` view over the working network (block 0 in ``.pka``, or ``self`` in ``.pkt``)."""
+        sub = self._embedded_pkt_lab(0)
+        return sub if sub is not None else self
+
+    @property
+    def initial_lab(self) -> "Lab | None":
+        """A :class:`Lab` view over the initial network (block 1 in ``.pka``), or ``None``."""
+        return self._embedded_pkt_lab(1)
+
+    @property
+    def answer_lab(self) -> "Lab | None":
+        """A :class:`Lab` view over the answer network (block 2 in ``.pka``), or ``None``."""
+        return self._embedded_pkt_lab(2)
+
+    @property
+    def complete_feedback(self) -> str:
+        """Overall completion feedback message (``<OVERALL_COMPLETE_FEEDBACK>``)."""
+        return self._text("OVERALL_COMPLETE_FEEDBACK")
+
+    @property
+    def incomplete_feedback(self) -> str:
+        """Overall incomplete feedback message (``<OVERALL_INCOMPLETE_FEEDBACK>``)."""
+        return self._text("OVERALL_INCOMPLETE_FEEDBACK")
+
+    @property
+    def component_list(self) -> tuple[str, ...]:
+        """Graded component categories from ``<COMPONENT_LIST>``."""
+        raw = self._text("COMPONENT_LIST")
+        if not raw:
+            return ()
+        return tuple(part.strip() for part in raw.split(",") if part.strip())
 
     def set_activity_password(self, value: str) -> None:
         """Set the activity-wizard password (``<ACTIVITY PASS="...">``)."""

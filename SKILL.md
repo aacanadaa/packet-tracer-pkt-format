@@ -150,12 +150,16 @@ out = encode_bytes(lab.to_xml(), container.format_name)   # byte-exact if unmodi
 `root_tag` / `is_activity` live on the **container**; `version` lives on the **lab**.
 `Lab` is not exported from the `pkt_core` package root — import it from `pkt_core.models`.
 
-CLI: `pkt info | unpack | pack | diff | export | audit`.
+CLI: `pkt info | unpack | pack | diff | export | audit | grade`.
 `pkt unpack` emits XML + container metadata + per-device IOS configs + a topology graph.
-`pkt audit lab.pkt --templates tools/device_templates.json` prints raw **and**
-distinct counts for every service family and exits non-zero on any duplicate —
-see the "if the validator prints a count" rule below. Run it on anything you
-generate from harvested templates.
+`pkt audit lab.pkt --bundled-templates` (or `--templates tools/device_templates.json`)
+prints raw **and** distinct counts for every service family and exits non-zero on
+any duplicate — see the "if the validator prints a count" rule below. Run it on
+anything you generate from harvested templates.
+`pkt grade submission.pka [--against master.pka] [--csv grades.csv] [--json]`
+headlessly grades `.pka` or `.pkt` submissions against the embedded or reference
+answer network and `<COMPARISONS>` scoring tree in milliseconds (also available
+in Python via `from pkt_core import grade_file, grade_batch, grade_lab, grade_bytes`).
 
 Models are **views over a lossless tree**: untouched bytes are emitted verbatim,
 so data loss is impossible. Unrecognised elements surface in `extra_fields`.

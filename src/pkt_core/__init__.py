@@ -44,8 +44,17 @@ from pkt_core.errors import (
 )
 
 from pkt_core.builder import Lab, Layout, load_templates
+from pkt_core.grade import (
+    DeviceScore,
+    GradeItem,
+    GradeReport,
+    grade_batch,
+    grade_bytes,
+    grade_file,
+    grade_lab,
+)
 
-__version__ = "2.0.1"
+__version__ = "3.0.0"
 
 __all__ = [
     # container
@@ -82,4 +91,12 @@ __all__ = [
     "Lab",
     "Layout",
     "load_templates",
+    # grading
+    "GradeItem",
+    "DeviceScore",
+    "GradeReport",
+    "grade_lab",
+    "grade_bytes",
+    "grade_file",
+    "grade_batch",
 ]

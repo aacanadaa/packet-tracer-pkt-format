@@ -92,6 +92,11 @@ class Port(PktNode):
     def description(self) -> str:
         return self._text("DESCRIPTION")
 
+    @property
+    def config(self) -> PortConfig:
+        """End-device IPv4/IPv6/DHCP/gateway configuration on this ``<PORT>``."""
+        return PortConfig.from_element(self._el)
+
 
 class Module(PktNode):
     """A plug-in module, itself containing slots, sub-modules and ports.
@@ -337,6 +342,34 @@ class Device(PktNode):
         engine = self.engine
         node = engine.find("DESCRIPTION") if engine is not None else None
         return node.text.strip() if node is not None else ""
+
+    @property
+    def gateway(self) -> str:
+        """End-device default gateway (``<ENGINE><GATEWAY>`` or first port's gateway)."""
+        engine = self.engine
+        if engine is not None:
+            gw_node = engine.find("GATEWAY")
+            if gw_node is not None and gw_node.text.strip():
+                return gw_node.text.strip()
+        for pc in self.port_configs:
+            if pc.gateway and pc.gateway != "0.0.0.0":
+                return pc.gateway
+        return ""
+
+    @property
+    def running_config(self) -> list[bytes]:
+        """IOS running configuration lines (``<ENGINE><RUNNINGCONFIG><LINE>``) as raw bytes."""
+        engine = self.engine
+        if engine is None:
+            return []
+        rc = engine.find("RUNNINGCONFIG")
+        if rc is None:
+            return []
+        out: list[bytes] = []
+        for line in rc.find_all("LINE"):
+            parts = [c.data for c in line.children if hasattr(c, "data")]
+            out.append(b"".join(parts))
+        return out
 
     @property
     def modules(self) -> list[Module]:

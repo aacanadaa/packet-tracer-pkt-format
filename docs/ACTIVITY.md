@@ -212,3 +212,28 @@ re-encode — no Packet Tracer needed.  The shipped **shape library** (`tools/de
 models without a shape are skipped (not graded) rather than failing.  Extend it
 with `tools/harvest_library.py`.  `tools/activity.py` exposes helpers for the
 common fields; anything else is a direct string/XML edit of the decoded text.
+
+## 8. Headless Auto-Grading (`pkt grade` & `pkt_core.grade`)
+
+You can grade `.pka` activity submissions (or `.pkt` topologies) headlessly in
+milliseconds without launching Packet Tracer:
+
+```console
+# 1. Grade a student's saved .pka against its embedded answer network & scoring tree
+$ pkt grade submission.pka
+
+# 2. Tamper-proof batch grading against the instructor's master .pka + CSV gradebook
+$ pkt grade submissions/*.pka --against master.pka --csv gradebook.csv
+
+# 3. Grade a plain .pkt against a solution .pkt
+$ pkt grade student.pkt --against solution.pkt --pass-threshold 80 --json
+```
+
+Or from Python:
+
+```python
+from pkt_core import grade_file, grade_batch
+
+report = grade_file("submission.pka", against="master.pka")
+print(report.summary())
+```
