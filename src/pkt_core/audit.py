@@ -1134,4 +1134,54 @@ def validate_lab(
                 )
             )
 
+    for dev in lab.devices:
+        rc = dev.running_config
+        if rc:
+            for idx, raw_line in enumerate(rc):
+                if raw_line.decode("utf-8", "replace").strip().lower() == "end":
+                    trailing = [
+                        ln.decode("utf-8", "replace").strip()
+                        for ln in rc[idx + 1 :]
+                        if ln.decode("utf-8", "replace").strip() not in ("", "!")
+                    ]
+                    if trailing:
+                        findings.append(
+                            Finding(
+                                "fail",
+                                "config-after-end",
+                                f"{dev.name}: {len(trailing)} RUNNINGCONFIG line(s) appear after 'end' "
+                                f"(e.g. {trailing[0]!r}); Packet Tracer stops parsing at 'end'",
+                            )
+                        )
+                    break
+
+        if dev.kind.lower() in ("pc", "server", "laptop") and dev.engine is not None:
+            gw_el = dev.engine.find("GATEWAY")
+            eng_gw = gw_el.text.strip() if gw_el is not None else ""
+            for p in dev.ports:
+                pgw_el = p._el.find("PORT_GATEWAY")
+                port_gw = pgw_el.text.strip() if pgw_el is not None else ""
+                if port_gw and port_gw != "0.0.0.0" and port_gw != eng_gw:
+                    findings.append(
+                        Finding(
+                            "warn",
+                            "end-device-gateway-mismatch",
+                            f"{dev.name}: <ENGINE><GATEWAY> ({eng_gw or 'unset'}) differs from "
+                            f"<PORT><PORT_GATEWAY> ({port_gw}); PT grades from <ENGINE><GATEWAY>",
+                        )
+                    )
+                    break
+
+    if lab.is_activity:
+        for sec in lab.activity_sections:
+            if sec.tag in ("COMPARISONS", "INITIALSETUP") and b"</NODE><NODE>" in sec._el.to_bytes():
+                findings.append(
+                    Finding(
+                        "fail",
+                        "scoring-adjacent-nodes",
+                        f"<{sec.tag}> contains adjacent '</NODE><NODE>' without a newline; "
+                        "PT 9.0.1 silently drops subsequent devices in Assessment Items",
+                    )
+                )
+
     return ValidationReport(tuple(findings), inv)

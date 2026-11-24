@@ -307,6 +307,11 @@ class ScoringNode(PktNode):
         return self._text("POINTS")
 
     @property
+    def components(self) -> str:
+        """Component category list stored in ``<COMPONENTS>`` (e.g. ``Ip``, ``Routing``)."""
+        return self._text("COMPONENTS")
+
+    @property
     def points_value(self) -> int:
         """Integer point weight (``<POINTS>``), defaulting to ``0``."""
         return self._int("POINTS", 0)

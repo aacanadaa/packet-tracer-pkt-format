@@ -92,6 +92,10 @@ _DESC_RE = re.compile(r"^description\s+(.+)$", re.I)
 _CLOCK_RE = re.compile(r"^clock\s+rate\s+(\d+)\s*$", re.I)
 _ENCAP_DOT1Q_RE = re.compile(r"^encapsulation\s+dot1Q\s+(\d+)(?:\s+native)?\s*$", re.I)
 _ACCESS_GROUP_RE = re.compile(r"^ip\s+access-group\s+(\S+)\s+(in|out)\s*$", re.I)
+_SSH_VER_RE = re.compile(r"^ip\s+ssh\s+version\s+(\S+)\s*$", re.I)
+_ROUTER_ID_RE = re.compile(r"^(?:bgp\s+)?router-id\s+(\S+)\s*$", re.I)
+_OSPF_AUTOCOST_RE = re.compile(r"^auto-cost\s+reference-bandwidth\s+(\S+)\s*$", re.I)
+_VTP_DOMAIN_RE = re.compile(r"^vtp\s+domain\s+(\S+)\s*$", re.I)
 
 #: Host kinds whose NICs Packet Tracer names without a slot (``FastEthernet0``).
 _END_DEVICE_KINDS: frozenset[str] = frozenset(
@@ -376,11 +380,31 @@ def _extract_device_state(
     custom_vars: dict[str, str] = {}
 
     hostname = dev.name
-    default_gw = dev.gateway
+    eng_gw = ""
+    has_eng_gw_tag = False
+    if dev.engine is not None:
+        gw_el = dev.engine.find("GATEWAY")
+        if gw_el is not None:
+            has_eng_gw_tag = True
+            eng_gw = gw_el.text.strip()
+    default_gw = eng_gw if has_eng_gw_tag else dev.gateway
     dns_srv = ""
     enable_secret = False
     ip_routing = dev.kind.lower() in ("router", "multilayerswitch")
     ipv6_routing = False
+    svc_pwd_enc = False
+    aaa_new_model = False
+    ntp_auth = False
+    ntp_cal = False
+    ssh_ver = ""
+    vtp_domain = ""
+    stp_rstp = False
+    ospf_router_ids: dict[str, str] = {}
+    ospf_auto_costs: dict[str, str] = {}
+    bgp_as = ""
+    bgp_router_id = ""
+    bgp_log_nbr = False
+    bgp_no_sync = False
 
     # 1. Hardware / end-device XML ports.  A <PORT> carries no interface name,
     #    so one is guessed from its media type, and a guess must never invent
@@ -415,7 +439,7 @@ def _extract_device_state(
             st.shutdown = not p.power
             if host_nic is None:
                 host_nic = st
-        if cfg.gateway and cfg.gateway != "0.0.0.0" and not default_gw:
+        if not has_eng_gw_tag and cfg.gateway and cfg.gateway != "0.0.0.0" and not default_gw:
             default_gw = cfg.gateway
         if cfg.dns and cfg.dns != "0.0.0.0" and not dns_srv:
             dns_srv = cfg.dns
@@ -449,6 +473,9 @@ def _extract_device_state(
                 cur_router_proto = ""
                 cur_dhcp_pool = ""
 
+                low_s = s.lower()
+                if low_s == "end":
+                    break
                 m = _IFACE_RE.match(s)
                 if m:
                     iname = _canonical_port_name(m.group(1))
@@ -475,21 +502,55 @@ def _extract_device_state(
                 if m:
                     cur_router_proto = m.group(1).lower()
                     cur_router_id = m.group(2) or "1"
+                    if cur_router_proto == "bgp":
+                        bgp_as = cur_router_id
                     continue
-                if s.lower().startswith("ip dhcp pool "):
+                if low_s.startswith("ip dhcp pool "):
                     cur_dhcp_pool = s.split(None, 3)[3].strip()
                     dhcp_net = dhcp_mask = dhcp_gw = ""
                     continue
-                if s.lower().startswith(("enable secret ", "enable password ")):
+                if low_s.startswith(("enable secret ", "enable password ")):
                     enable_secret = True
                     continue
-                if s.lower() == "ip routing":
+                if low_s == "service password-encryption":
+                    svc_pwd_enc = True
+                    continue
+                if low_s == "no service password-encryption":
+                    svc_pwd_enc = False
+                    continue
+                if low_s == "aaa new-model":
+                    aaa_new_model = True
+                    continue
+                if low_s == "no aaa new-model":
+                    aaa_new_model = False
+                    continue
+                if low_s == "ntp authenticate":
+                    ntp_auth = True
+                    continue
+                if low_s == "ntp update-calendar":
+                    ntp_cal = True
+                    continue
+                m = _SSH_VER_RE.match(s)
+                if m:
+                    ssh_ver = m.group(1)
+                    continue
+                m = _VTP_DOMAIN_RE.match(s)
+                if m:
+                    vtp_domain = m.group(1)
+                    continue
+                if low_s == "spanning-tree mode rapid-pvst":
+                    stp_rstp = True
+                    continue
+                if low_s.startswith("spanning-tree mode "):
+                    stp_rstp = False
+                    continue
+                if low_s == "ip routing":
                     ip_routing = True
                     continue
-                if s.lower() == "no ip routing":
+                if low_s == "no ip routing":
                     ip_routing = False
                     continue
-                if s.lower() == "ipv6 unicast-routing":
+                if low_s == "ipv6 unicast-routing":
                     ipv6_routing = True
                     continue
                 continue
@@ -568,6 +629,27 @@ def _extract_device_state(
                     ospf_networks.setdefault(cur_router_id, set()).add(
                         (m.group(1), m.group(2), m.group(3))
                     )
+                    continue
+                m = _ROUTER_ID_RE.match(s)
+                if m:
+                    ospf_router_ids[cur_router_id] = m.group(1)
+                    continue
+                m = _OSPF_AUTOCOST_RE.match(s)
+                if m:
+                    ospf_auto_costs[cur_router_id] = m.group(1)
+            elif cur_router_proto == "bgp":
+                low_s = s.lower()
+                m = _ROUTER_ID_RE.match(s)
+                if m:
+                    bgp_router_id = m.group(1)
+                elif low_s == "bgp log-neighbor-changes":
+                    bgp_log_nbr = True
+                elif low_s == "no bgp log-neighbor-changes":
+                    bgp_log_nbr = False
+                elif low_s == "no synchronization":
+                    bgp_no_sync = True
+                elif low_s == "synchronization":
+                    bgp_no_sync = False
             elif cur_dhcp_pool:
                 low = s.lower()
                 if low.startswith("network "):
@@ -581,11 +663,12 @@ def _extract_device_state(
             dhcp_pools[cur_dhcp_pool] = (dhcp_net, dhcp_mask, dhcp_gw)
 
     # PT saves `show running-config` output, which prints `shutdown` but never
-    # `no shutdown`: a declared interface is up unless shut down (Vlan SVIs aside).
+    # `no shutdown`: a declared interface is up unless shut down (or, for a Vlan
+    # SVI, configured with an IP address and no `shutdown`).
     # Every interface on these kinds is config-declared (see the guessing above).
     if kind in ("router", "switch", "multilayerswitch"):
         for st in ifaces.values():
-            if not st.has_shutdown_cmd and not st.name.lower().startswith("vlan"):
+            if not st.has_shutdown_cmd and (not st.name.lower().startswith("vlan") or st.ip):
                 st.shutdown = False
 
     # 3. Server services (DHCP, DNS, AAA)
@@ -610,7 +693,28 @@ def _extract_device_state(
         "DNS Server": dns_srv or "0.0.0.0",
         "Routes/IP Routing": "1" if ip_routing else "0",
         "Routesv6/Ipv6 Unicast Routing": "1" if ipv6_routing else "0",
+        "Service Password Encryption": "1" if svc_pwd_enc else "0",
+        "AAA/New-model": "1" if aaa_new_model else "0",
+        "NTP/NTP Authenticate": "1" if ntp_auth else "0",
+        "NTP/Update Calendar": "1" if ntp_cal else "0",
+        "STP/RSTP": "1" if stp_rstp else "0",
     }
+    if ssh_ver:
+        flat["SSH Server/SSH Server Version"] = ssh_ver
+    if vtp_domain:
+        flat["VTP/Domain Name"] = vtp_domain
+    for pid, rid in ospf_router_ids.items():
+        flat[f"OSPF/{pid}/Router ID"] = rid
+    for pid, ac in ospf_auto_costs.items():
+        flat[f"OSPF/{pid}/Auto Cost"] = ac
+    if bgp_as:
+        flat["BGP/Autonomous System"] = bgp_as
+        if bgp_router_id:
+            flat["BGP/Router ID"] = bgp_router_id
+        flat["BGP/Log Neighbor Changes"] = "1" if bgp_log_nbr else "0"
+        flat["BGP/Synchronization"] = "0" if bgp_no_sync else "1"
+    if is_end_device and "FastEthernet0" in ifaces:
+        flat["Ports/FastEthernet0/Default Gateway"] = default_gw
 
     primary_ip = ""
     primary_mask = ""
@@ -633,7 +737,11 @@ def _extract_device_state(
         flat[f"{prefix}/Voice Vlan"] = st.voice_vlan
         if st.switchport_mode:
             flat[f"{prefix}/Port Mode"] = "1" if st.switchport_mode == "trunk" else "0"
-            flat[f"{prefix}/Dynamic Mode"] = "1" if st.switchport_mode == "trunk" else "0"
+            flat[f"{prefix}/Dynamic Mode"] = {"trunk": "2", "access": "3"}.get(
+                st.switchport_mode, "1"
+            )
+        elif kind in ("switch", "multilayerswitch") and "ethernet" in iname.lower():
+            flat[f"{prefix}/Dynamic Mode"] = "1"
         if st.clock_rate:
             flat[f"{prefix}/Clock Rate"] = st.clock_rate
         if st.access_group_in:
@@ -700,9 +808,11 @@ def _category_for_path(rel_path: str) -> str:
 def _collect_Explicit_tree_checks(
     comp_roots: Sequence[ScoringNode],
     init_roots: Sequence[ScoringNode],
-) -> list[tuple[str, str, str, str, int, str]]:
-    """Return ``[(device_name, rel_path, label, expected_val, points, feedback), ...]``
-    from a ``<COMPARISONS>`` tree.
+) -> tuple[list[tuple[str, str, str, str, int, str, str]], bool]:
+    """Return ``(checks, has_explicit_ct)`` from a ``<COMPARISONS>`` tree.
+
+    Each check tuple is
+    ``(device_name, rel_path, label, expected_val, points, feedback, category)``.
 
     Selects nodes that either:
     1. Carry an explicit ``checkType > 0`` on a leaf node with points/nodeValue, or
@@ -726,8 +836,8 @@ def _collect_Explicit_tree_checks(
             for ch in dev_node.children:
                 _walk_init(ch, dname, "")
 
-    explicit_ct: list[tuple[str, str, str, str, int, str]] = []
-    diff_from_init: list[tuple[str, str, str, str, int, str]] = []
+    explicit_ct: list[tuple[str, str, str, str, int, str, str]] = []
+    diff_from_init: list[tuple[str, str, str, str, int, str, str]] = []
 
     def _walk_comp(node: ScoringNode, dev_name: str, rel: str) -> None:
         key = node.node_id or node.name
@@ -739,12 +849,17 @@ def _collect_Explicit_tree_checks(
         fb = node.incorrect_feedback
 
         if not children:
+            cat = node.components.strip() or _category_for_path(next_rel)
             if ct > 0 and (pts > 0 or nv):
-                explicit_ct.append((dev_name, next_rel, node.name or key, nv, max(pts, 1), fb))
+                explicit_ct.append(
+                    (dev_name, next_rel, node.name or key, nv, max(pts, 1), fb, cat)
+                )
             elif pts > 0 and nv:
                 init_nv = init_values.get((dev_name, next_rel))
                 if init_nv is not None and init_nv != nv and not next_rel.endswith("IPv6 NAT Prefix"):
-                    diff_from_init.append((dev_name, next_rel, node.name or key, nv, pts, fb))
+                    diff_from_init.append(
+                        (dev_name, next_rel, node.name or key, nv, pts, fb, cat)
+                    )
         for ch in children:
             _walk_comp(ch, dev_name, next_rel)
 
@@ -756,7 +871,9 @@ def _collect_Explicit_tree_checks(
             for ch in dev_node.children:
                 _walk_comp(ch, dname, "")
 
-    return explicit_ct if explicit_ct else diff_from_init
+    if explicit_ct:
+        return explicit_ct, True
+    return diff_from_init, False
 
 
 def _derive_rubric_checks(
@@ -1083,21 +1200,21 @@ def grade_lab(
     initial_states = _extract_network_state(initial_net) if initial_net is not None else None
 
     # 1. Try explicit <COMPARISONS> tree checks first
-    tree_checks = (
+    tree_checks, has_explicit_ct = (
         _collect_Explicit_tree_checks(
             rubric_lab.scoring_tree,
             rubric_lab.initial_scoring_tree,
         )
         if rubric_lab.is_activity
-        else []
+        else ([], False)
     )
 
     items: list[GradeItem] = []
 
-    if answer_states:
+    if answer_states and not has_explicit_ct:
         # Derive comprehensive rubric from answer network (and merge any explicit tree point weights/feedback)
         tree_meta: dict[tuple[str, str], tuple[int, str]] = {
-            (dname, rel): (pts, fb) for dname, rel, _lbl, _exp, pts, fb in tree_checks
+            (dname, rel): (pts, fb) for dname, rel, _lbl, _exp, pts, fb, _cat in tree_checks
         }
         rubric_checks = _derive_rubric_checks(answer_states, initial_states)
         for dname, cat, label, path_key, expected, default_pts in rubric_checks:
@@ -1122,8 +1239,7 @@ def grade_lab(
                 )
             )
     elif tree_checks:
-        for dname, rel_path, label, expected, pts, fb in tree_checks:
-            cat = _category_for_path(rel_path)
+        for dname, rel_path, label, expected, pts, fb, cat in tree_checks:
             if allowed_cats is not None and cat.lower() not in allowed_cats:
                 continue
             st = student_states.get(dname)

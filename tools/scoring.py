@@ -26,6 +26,11 @@ import re
 import xml.etree.ElementTree as ET
 
 
+SCAFFOLD_HEAD = {"Instruction", "Resource", "ConnectivityTests", "CodeTesting"}
+SCAFFOLD_TAIL = {"Remote Network", "Remote Networks", "Encircling Tests"}
+SCAFFOLD_NAMES = SCAFFOLD_HEAD | SCAFFOLD_TAIL
+
+
 def _section(xml, tag):
     open_tag = "<%s>" % tag
     close_tag = "</%s>" % tag
@@ -45,15 +50,48 @@ def _net_node(root):
 def _device_nodes(net_node):
     """Direct child NODE elements of the Network node that are devices
     (heuristic: not one of the fixed scaffolding nodes)."""
-    scaffold = {"Instruction", "Resource", "ConnectivityTests", "CodeTesting",
-                "Remote Network", "Remote Networks", "Encircling Tests"}
     out = []
     for c in net_node:
         if c.tag == "NODE":
             nm = c.findtext("NAME") or ""
-            if nm not in scaffold:
+            if nm not in SCAFFOLD_NAMES:
                 out.append(c)
     return out
+
+
+def _propagate_check_types(node):
+    """Set ``checkType="1"`` on every ancestor of any checked leaf (``checkType > 0``).
+
+    Returns ``True`` if ``node`` or any descendant is checked.
+    """
+    child_nodes = [c for c in node if c.tag == "NODE"]
+    nm_el = node.find("NAME")
+    if not child_nodes:
+        ct = (nm_el.get("checkType") or "0") if nm_el is not None else "0"
+        return ct != "0"
+    any_checked = False
+    for ch in child_nodes:
+        if _propagate_check_types(ch):
+            any_checked = True
+    if nm_el is not None:
+        nm_el.set("checkType", "1" if any_checked else "0")
+    return any_checked
+
+
+def _format_scoring_tree(net_node):
+    """Indent a scoring ``<NODE>`` tree and expand empty tags.
+
+    PT 9.0.1 silently stops parsing ``<COMPARISONS>`` / ``<INITIALSETUP>``
+    device siblings after the first device when ``</NODE><NODE>`` appear with
+    no intervening newline.  ``ET.indent`` guarantees newlines between every
+    sibling ``<NODE>`` element.
+    """
+    net_node.tail = None
+    ET.indent(net_node, space=" ", level=1)
+    body = ET.tostring(net_node, encoding="unicode")
+    body = body.replace("<COMPONENTS />", "<COMPONENTS></COMPONENTS>")
+    body = body.replace("<POINTS />", "<POINTS></POINTS>")
+    return body
 
 
 def from_template(template_xml, devices=None, overrides=None, rename=None):
@@ -61,7 +99,7 @@ def from_template(template_xml, devices=None, overrides=None, rename=None):
 
     devices   : keep only these device names (default: all in the template)
     rename    : {old_name: new_name}
-    overrides : {device_name: {item_id: value}} to set expected values
+    overrides : {device_name: {item_id_or_path: value}} to set expected values
     Returns (initialsetup_xml, comparisons_xml).
     """
     if isinstance(template_xml, bytes):
@@ -76,42 +114,34 @@ def from_template(template_xml, devices=None, overrides=None, rename=None):
         if net is None:
             raise ValueError("<%s> has no <NODE> root" % tag)
         devs = _device_nodes(net)
-        # scaffolding = non-device direct children (COMPARISONS keeps them)
-        kept = []
+        head_sc, tail_sc = [], []
         if with_scaffold:
             for c in net:
                 if c.tag == "NODE" and c not in devs:
-                    kept.append(c)
+                    nm = c.findtext("NAME") or ""
+                    if nm in SCAFFOLD_TAIL:
+                        tail_sc.append(c)
+                    else:
+                        head_sc.append(c)
+        kept = list(head_sc)
         for d in devs:
             nm = d.findtext("NAME") or ""
             if devices is not None and nm not in devices:
                 continue
-            clone = ET.fromstring(ET.tostring(d))
             new = rename.get(nm, nm)
-            for e in clone.iter("NAME"):
-                if e.text == nm:
-                    e.text = new
-            for e in clone.iter("ID"):
-                if e.text == nm:
-                    e.text = new
-            # apply value overrides by item id / label
-            for e in clone.iter("NODE"):
-                lbl = e.findtext("NAME")
-                idn = e.findtext("ID")
-                for key, val in overrides.get(new, {}).items():
-                    if lbl == key or idn == key:
-                        for nmel in e.iter("NAME"):
-                            if nmel.text == lbl:
-                                nmel.set("nodeValue", str(val))
+            clone = ET.fromstring(
+                _retarget(ET.tostring(d, encoding="unicode"), new, overrides.get(new, {}))
+            )
             kept.append(clone)
+        kept.extend(tail_sc)
         for c in list(net):
             net.remove(c)
         for c in kept:
             net.append(c)
-        body = ET.tostring(net, encoding="unicode")
+        body = _format_scoring_tree(net)
         if tag == "INITIALSETUP":
-            return "<INITIALSETUP>%s<LOAD_INIT_TREE>true</LOAD_INIT_TREE></INITIALSETUP>" % body
-        return "<COMPARISONS>%s</COMPARISONS>" % body
+            return "<INITIALSETUP>\n %s\n <LOAD_INIT_TREE>true</LOAD_INIT_TREE>\n</INITIALSETUP>" % body
+        return "<COMPARISONS>\n %s\n</COMPARISONS>" % body
 
     return build("INITIALSETUP", with_scaffold=False), build("COMPARISONS", with_scaffold=True)
 
@@ -119,46 +149,117 @@ def from_template(template_xml, devices=None, overrides=None, rename=None):
 # --------------------------------------------------------------------------- #
 # value derivation (from an answer network) -- use with from_template overrides
 # --------------------------------------------------------------------------- #
+def _canonical_iface(name):
+    s = name.strip()
+    for short, full in (
+        ("Gig0/", "GigabitEthernet0/"),
+        ("Gi0/", "GigabitEthernet0/"),
+        ("Fa0/", "FastEthernet0/"),
+        ("Eth0/", "Ethernet0/"),
+        ("Se0/", "Serial0/"),
+        ("Lo", "Loopback"),
+        ("Vl", "Vlan"),
+    ):
+        if s.startswith(short) and not s.startswith(full):
+            return full + s[len(short) :]
+    return s
+
+
+def _unescape_line(line):
+    return (
+        line.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+    )
+
+
 def derive_values(answer_xml):
-    """Return {device_name: {item_id: expected_value}} from a decoded answer
-    network (IOS running-config + end-device port IPs)."""
+    """Return ``{device_name: {item_id_or_path: expected_value}}`` from a decoded
+    answer network (IOS running-config + end-device port/engine settings)."""
     if isinstance(answer_xml, bytes):
         answer_xml = answer_xml.decode("utf-8", "replace")
     out = {}
     for m in re.finditer(r"<DEVICE>.*?</DEVICE>", answer_xml, re.S):
         blk = m.group(0)
-        nm = re.search(r'<NAME[^>]*>([^<]*)</NAME>', blk)
+        nm = re.search(r"<NAME[^>]*>([^<]*)</NAME>", blk)
         if not nm:
             continue
         name = nm.group(1)
         vals = {}
-        model = re.search(r'<TYPE[^>]*model="([^"]*)"', blk)
+        model = re.search(r'<TYPE\b[^>]*model="([^"]*)"', blk)
         if model:
             vals["Device Model"] = model.group(1)
+        pwr = re.search(r"<POWER>(true|false)</POWER>", blk)
+        if pwr:
+            vals["Power"] = "1" if pwr.group(1) == "true" else "0"
         rc = re.search(r"<RUNNINGCONFIG>(.*?)</RUNNINGCONFIG>", blk, re.S)
         if rc:
-            for line in re.findall(r"<LINE>(.*?)</LINE>", rc.group(1), re.S):
-                line = (
-                    line.replace("&lt;", "<")
-                    .replace("&gt;", ">")
-                    .replace("&quot;", '"')
-                    .replace("&apos;", "'")
-                    .replace("&amp;", "&")
-                )
-                ma = re.match(r"\s*ip address (\S+) (\S+)", line)
+            cur_iface = None
+            iface_ip_seen = set()
+            iface_shut = {}
+            iface_no_shut = set()
+            for raw_line in re.findall(r"<LINE>(.*?)</LINE>", rc.group(1), re.S):
+                line = _unescape_line(raw_line)
+                stripped = line.strip()
+                if not line.startswith(" "):
+                    cur_iface = None
+                    if stripped.lower() == "end":
+                        break
+                    mh = re.match(r"hostname\s+(\S+)$", stripped, re.I)
+                    if mh:
+                        vals["Host Name"] = mh.group(1)
+                        continue
+                    mi = re.match(r"interface\s+(\S+)$", stripped, re.I)
+                    if mi:
+                        cur_iface = _canonical_iface(mi.group(1))
+                        continue
+                    continue
+                if cur_iface is None:
+                    continue
+                ma = re.match(r"ip\s+address\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)$", stripped, re.I)
                 if ma:
-                    vals["IP Address"] = ma.group(1)
-                    vals["Subnet Mask"] = ma.group(2)
-                if re.match(r"\s*no shutdown", line):
-                    vals["Port Up"] = "1"
-        ip = re.search(r"<IP>([^<]+)</IP>", blk)
-        gw = re.search(r"<GATEWAY>([^<]+)</GATEWAY>", blk) or re.search(
-            r"<PORT_GATEWAY>([^<]+)</PORT_GATEWAY>", blk
-        )
-        if ip and ip.group(1):
-            vals["IP Address"] = ip.group(1)
-        if gw and gw.group(1):
-            vals["Default Gateway"] = gw.group(1)
+                    vals[f"Ports/{cur_iface}/IP Address"] = ma.group(1)
+                    vals[f"Ports/{cur_iface}/Subnet Mask"] = ma.group(2)
+                    iface_ip_seen.add(cur_iface)
+                    continue
+                if stripped.lower() == "no shutdown":
+                    iface_no_shut.add(cur_iface)
+                    iface_shut[cur_iface] = False
+                    continue
+                if stripped.lower() == "shutdown":
+                    iface_shut[cur_iface] = True
+                    continue
+                msw = re.match(r"switchport\s+mode\s+(\S+)$", stripped, re.I)
+                if msw:
+                    mode_kw = msw.group(1).lower()
+                    if mode_kw == "trunk":
+                        vals[f"Ports/{cur_iface}/Dynamic Mode"] = "2"
+                    elif mode_kw == "access":
+                        vals[f"Ports/{cur_iface}/Dynamic Mode"] = "3"
+            for iface in iface_ip_seen | iface_no_shut | set(iface_shut):
+                if iface in iface_no_shut or (iface in iface_ip_seen and not iface_shut.get(iface, False)):
+                    vals[f"Ports/{iface}/Port Up"] = "1"
+                elif iface_shut.get(iface) is True:
+                    vals[f"Ports/{iface}/Port Up"] = "0"
+        else:
+            ip = re.search(r"<IP>([^<]+)</IP>", blk)
+            mask = re.search(r"<SUBNET>([^<]+)</SUBNET>", blk)
+            # PT reads end-device default gateway from <ENGINE><GATEWAY>, falling back to <PORT_GATEWAY>
+            eng_no_port = re.sub(r"<MODULE>.*?</MODULE>", "", blk, flags=re.S)
+            egw = re.search(r"<GATEWAY>([^<]+)</GATEWAY>", eng_no_port)
+            pgw = re.search(r"<PORT_GATEWAY>([^<]+)</PORT_GATEWAY>", blk)
+            gw_val = (
+                egw.group(1) if (egw and egw.group(1) and egw.group(1) != "0.0.0.0")
+                else (pgw.group(1) if pgw else "")
+            )
+            if ip and ip.group(1) and ip.group(1) != "0.0.0.0":
+                vals["Ports/FastEthernet0/IP Address"] = ip.group(1)
+            if mask and mask.group(1) and mask.group(1) != "0.0.0.0":
+                vals["Ports/FastEthernet0/Subnet Mask"] = mask.group(1)
+            if gw_val and gw_val != "0.0.0.0":
+                vals["Default Gateway"] = gw_val
         out[name] = vals
     return out
 
@@ -181,9 +282,6 @@ def derive_from_network(answer_xml):
 import json
 import glob
 import os as _os
-
-SCAFFOLD_NAMES = {"Instruction", "Resource", "ConnectivityTests", "CodeTesting",
-                  "Remote Network", "Remote Networks", "Encircling Tests"}
 
 
 def _model_of(comp_node):
@@ -248,26 +346,56 @@ def load_shapes(path=None):
     return json.loads(b)
 
 
-def _retarget(node_xml, name, overrides):
+def _retarget(node_xml, name, overrides, *, enable_checks=False):
     el = ET.fromstring(node_xml)
     old = el.findtext("NAME")
     for e in el.iter("NAME"):
         if e.text == old:
             e.text = name
+        if enable_checks:
+            e.set("checkType", "0")
     for e in el.iter("ID"):
         if e.text == old:
             e.text = name
-    for e in el.iter("NODE"):
-        lbl, idn = e.findtext("NAME"), e.findtext("ID")
-        for key, val in (overrides or {}).items():
-            if lbl == key or idn == key:
-                for nmel in e.iter("NAME"):
-                    if nmel.text == lbl:
-                        nmel.set("nodeValue", str(val))
+
+    ov = overrides or {}
+
+    def apply_overrides(node, rel_path=""):
+        child_nodes = [c for c in node if c.tag == "NODE"]
+        if rel_path:
+            lbl = node.findtext("NAME") or ""
+            idn = node.findtext("ID") or ""
+            matched_val = None
+            matched_key = None
+            if rel_path in ov:
+                matched_val = ov[rel_path]
+                matched_key = rel_path
+            elif "/" not in rel_path and (lbl in ov or idn in ov):
+                matched_key = lbl if lbl in ov else idn
+                matched_val = ov[matched_key]
+            elif "/" in rel_path and not child_nodes:
+                # Backward compatibility for flat keys on leaves (excluding ambiguous 'Power')
+                for k, v in ov.items():
+                    if "/" not in k and k != "Power" and (lbl == k or idn == k):
+                        matched_val = v
+                        matched_key = k
+                        break
+            if matched_key is not None:
+                nmel = node.find("NAME")
+                if nmel is not None:
+                    nmel.set("nodeValue", str(matched_val))
+                    if enable_checks and matched_key != "Device Model":
+                        nmel.set("checkType", "2")
+        for ch in child_nodes:
+            cid = ch.findtext("ID") or ch.findtext("NAME") or ""
+            sub_path = f"{rel_path}/{cid}" if rel_path else cid
+            apply_overrides(ch, sub_path)
+
+    apply_overrides(el)
     return ET.tostring(el, encoding="unicode")
 
 
-def from_shapes(spec, shapes=None):
+def from_shapes(spec, shapes=None, *, enable_checks=True):
     """Build (initialsetup_xml, comparisons_xml) from harvested shapes.
 
     spec: [{"name": "R9", "model": "2911", "overrides": {...}}, ...]
@@ -283,17 +411,41 @@ def from_shapes(spec, shapes=None):
             continue
         sh = shapes["models"][model]
         if sh.get("init"):
-            init_nodes.append(_retarget(sh["init"], d["name"], d.get("overrides")))
-        comp_nodes.append(_retarget(sh["comp"], d["name"], d.get("overrides")))
-    net_open = ('<NODE><NAME checkType="0" eclass="8" headNode="true" '
-                'incorrectFeedback="" nodeValue="" obfuscateName="false" overrideDBGrading="false" '
-                'variableEnabled="false" variableName="">Network</NAME><ID>Network</ID>'
-                '<COMPONENTS></COMPONENTS><POINTS></POINTS>')
-    net_close = "</NODE>"
-    initialsetup = ("<INITIALSETUP>%s%s%s<LOAD_INIT_TREE>true</LOAD_INIT_TREE></INITIALSETUP>"
-                    % (net_open, "".join(init_nodes), net_close))
-    comparisons = ("<COMPARISONS>%s%s%s%s</COMPARISONS>"
-                   % (net_open, "".join(shapes.get("scaffold", [])), "".join(comp_nodes), net_close))
+            init_nodes.append(
+                ET.fromstring(_retarget(sh["init"], d["name"], d.get("overrides"), enable_checks=False))
+            )
+        comp_nodes.append(
+            ET.fromstring(_retarget(sh["comp"], d["name"], d.get("overrides"), enable_checks=enable_checks))
+        )
+
+    def _make_net():
+        return ET.fromstring(
+            '<NODE><NAME checkType="0" eclass="8" headNode="true" '
+            'incorrectFeedback="" nodeValue="" obfuscateName="false" overrideDBGrading="false" '
+            'variableEnabled="false" variableName="">Network</NAME><ID>Network</ID>'
+            '<COMPONENTS></COMPONENTS><POINTS></POINTS></NODE>'
+        )
+
+    init_net = _make_net()
+    for ch in init_nodes:
+        init_net.append(ch)
+    initialsetup = "<INITIALSETUP>\n %s\n <LOAD_INIT_TREE>true</LOAD_INIT_TREE>\n</INITIALSETUP>" % _format_scoring_tree(init_net)
+
+    comp_net = _make_net()
+    head_sc, tail_sc = [], []
+    for sc_xml in shapes.get("scaffold", []):
+        sc_el = ET.fromstring(sc_xml)
+        nm = sc_el.findtext("NAME") or ""
+        if nm in SCAFFOLD_TAIL:
+            tail_sc.append(sc_el)
+        else:
+            head_sc.append(sc_el)
+    for ch in head_sc + comp_nodes + tail_sc:
+        comp_net.append(ch)
+    if enable_checks:
+        _propagate_check_types(comp_net)
+    comparisons = "<COMPARISONS>\n %s\n</COMPARISONS>" % _format_scoring_tree(comp_net)
+
     if missing:
         import sys as _sys
         print("scoring: no shape for %s (not graded)" % sorted(set(missing)), file=_sys.stderr)

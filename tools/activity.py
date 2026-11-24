@@ -137,7 +137,14 @@ class Activity:
         self._set_text("UNLOCK_ASSESSMENT_ITEM_PERCENT", str(int(percent)))
 
     def set_clean_activity(self, flag):
+        """Set ``<CLEAN_ACTIVITY>`` (`true` initializes workspace from block 1;
+        `false` resumes block 0 when ``<LOAD_INIT_TREE>`` is also `false`)."""
         self._set_text("CLEAN_ACTIVITY", "true" if flag else "false")
+
+    def set_load_init_tree(self, flag):
+        """Set ``<LOAD_INIT_TREE>`` (`true` resets working state from block 1
+        when ``<INITIALSETUP>`` parses cleanly; `false` resumes block 0)."""
+        self._set_text("LOAD_INIT_TREE", "true" if flag else "false")
 
     def set_scoring_xml(self, initialsetup_xml, comparisons_xml):
         self.xml = re.sub(

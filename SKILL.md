@@ -1320,6 +1320,16 @@ Per-format key/IV bytes are in `pkt_core.crypto.keys.FORMATS`.
 * Activities nest ~3 `<PACKETTRACER5>` children (live/initial/comparison copies).
 * `NODE` is overloaded: the activity grading tree **and** the physical-workspace
   location tree share the name.
+* PT 9.0.1 silently truncates `<COMPARISONS>`/`<INITIALSETUP>` after device #1 if
+  adjacent `</NODE><NODE>` lack newlines (audited via `scoring-adjacent-nodes`; keep
+  `Remote Networks`/`Encircling Tests` after devices); active leaves need `checkType="2"`
+  with `checkType="1"` ancestors.
+* PT 9.0.1 grades end-device `Default Gateway` from `<ENGINE><GATEWAY>` (audited via
+  `end-device-gateway-mismatch`), maps switchport `Dynamic Mode` as `1`=dynamic auto /
+  `2`=trunk / `3`=access, stops parsing `<RUNNINGCONFIG>` at `end` (audited via
+  `config-after-end`), initializes from block 1 when `<CLEAN_ACTIVITY>` or
+  `<LOAD_INIT_TREE>` is `true`, and checks IoT `<FILE_MANAGER>` (preserving `&#xd;`
+  CRLF entities in raw templates) and `<TEMPLATE_CREATION_TIME>` (`docs/PT901_COMPATIBILITY.md`).
 
 ## Documentation
 
@@ -1329,6 +1339,7 @@ Per-format key/IV bytes are in `pkt_core.crypto.keys.FORMATS`.
 | `docs/SCHEMA_REFERENCE.md` | all 1,285 XML element names |
 | `docs/LEGACY_FORMAT.md` | the PT 5.x reverse-engineering writeup |
 | `docs/CORPUS_VERIFICATION.md` | 1058/1058 byte-exact evidence |
+| `docs/PT901_COMPATIBILITY.md` | PT 9.0.1 scoring, template, gateway, IOS parser compatibility fixes |
 | `docs/PKA_GENERATION.md` | authoring scored activities |
 | `docs/LARGE_TOPOLOGY_TEST.md` | 77-device topology, generated and opened |
 | `docs/PACKET_TRACER_VALIDATION.md` | verified in PT 7.3.1 and 9.0.1 |

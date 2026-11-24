@@ -98,7 +98,8 @@ grader compares) are **parallel trees of `<NODE>`s**:
 
 Useful `NAME` attributes:
 
-* `checkType` — grading mode (0 = compare, 1 = custom/scripted, …).
+* `checkType` — grading mode (`0` = unchecked, `1` = checked ancestor container,
+  `2` = checked leaf item; see [`PT901_COMPATIBILITY.md`](PT901_COMPATIBILITY.md)).
 * `eclass` — item class (8 = container/network node).
 * `headNode` — has children.
 * `nodeValue` — expected value (empty = arbitrary).
@@ -153,6 +154,24 @@ activity.Activity("reference.pkt") \
 **Verified**: a custom activity built this way (instructions, password,
 permissions, our own network, cloned+retargeted scoring) opens in Packet Tracer
 with the instructions window, **Check Results**, and a computed **Completion**.
+
+### PT 9.0.1 scoring & state requirements
+
+See [`PT901_COMPATIBILITY.md`](PT901_COMPATIBILITY.md) for the full troubleshooting
+record. In summary:
+
+* **Newlines between sibling `<NODE>` elements:** PT 9.0.1 silently stops parsing
+  `<COMPARISONS>` and `<INITIALSETUP>` after device #1 if adjacent `</NODE><NODE>`
+  tags lack a newline. `tools/scoring.py` indents trees and keeps
+  `Remote Networks` / `Encircling Tests` after all device nodes (`SCAFFOLD_TAIL`);
+  `pkt audit` rejects adjacent `</NODE><NODE>` via `scoring-adjacent-nodes`.
+* **Reset vs. resume flags:** `<CLEAN_ACTIVITY>true</CLEAN_ACTIVITY>` or
+  `<LOAD_INIT_TREE>true</LOAD_INIT_TREE>` initializes the student workspace from
+  block 1 (initial); set **both** to `false` (`set_clean_activity(False)`,
+  `set_load_init_tree(False)`) to resume block 0.
+* **`Dynamic Mode` & end-device gateway:** Switchports grade `Dynamic Mode` as
+  `"1"` (dynamic auto), `"2"` (trunk), `"3"` (access); end devices grade
+  `Default Gateway` from `<ENGINE><GATEWAY>`, not `<PORT><PORT_GATEWAY>`.
 
 ## 4. Permissions / locking
 

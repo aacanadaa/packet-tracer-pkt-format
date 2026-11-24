@@ -53,12 +53,13 @@ The file opens as a **real graded activity**, not just a topology:
 | Stage | Observed |
 | --- | --- |
 | Open | window title `Cisco Packet Tracer - mylab.pka - Guest - <timestamp>` |
-| Activity | `PT Activity: 00:00:52` timer running |
+| Activity | `PT Activity: 00:00:15` timer running |
 | Instructions | rendered — `Task` heading, body text, `1/1` page nav |
-| Completion | `Completion: 100%` indicator live |
+| Completion (initial) | `Completion: 53%` (`Score: 8/15` on the default 3-device `R9-SW9-PC9` lab; all 3 devices listed under **Assessment Items**) |
+| Completion (answer) | `Completion: 100%` (`Score: 15/15` when block 0 matches the answer network with `<CLEAN_ACTIVITY>false</CLEAN_ACTIVITY>` and `<LOAD_INIT_TREE>false</LOAD_INIT_TREE>`) |
 | **Check Results** | **runs the grading engine** |
 | Grading output | *"Congratulations Guest! You completed the activity."* with tabs **Overall Feedback**, **Assessment Items**, **Connectivity Tests** |
-| Feedback text | our own `Lab complete - well done!` rendered |
+| Feedback text | `Keep going.` before completion; `Lab complete - well done!` (or `--feedback`) at 100% |
 
 ## What you still need to know
 
@@ -75,6 +76,13 @@ Three rough edges, all found by doing this for the first time:
 
 3. **`--password` writes to `<ACTIVITY PASS=...>`,** not `<OPTIONS><PASS>`. Those
    are different fields; `Lab.activity_password` reads the right one.
+
+4. **PT 9.0.1 scoring-tree formatting & check activation matter.** Sibling
+   `</NODE><NODE>` without a newline causes PT 9.0.1 to silently drop devices after
+   device #1, `Network` and parent nodes require `checkType="1"` with `checkType="2"`
+   on graded leaves, and `Remote Networks` / `Encircling Tests` must trail device
+   nodes. `tools/scoring.py` handles all three automatically; see
+   [`PT901_COMPATIBILITY.md`](PT901_COMPATIBILITY.md).
 
 ## Model API for editing the result
 
