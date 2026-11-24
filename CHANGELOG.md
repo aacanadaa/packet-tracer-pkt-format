@@ -11,6 +11,26 @@ container images are unified under standard `v*` tags (`v2.0.0`). Earlier
 `0.3.0`–`0.4.3` library releases were tagged `sdk-v0.*` because `v1.2.0` and
 `v1.3.0` had previously been used for revisions of `SKILL.md`.
 
+## [3.1.0] — 2026-11-24
+
+### Added
+
+- **PT 9.0.1 audit checks (`pkt_core.audit.validate_lab`)**: Added `config-after-end` (`fail`), `end-device-gateway-mismatch` (`warn`), and `scoring-adjacent-nodes` (`fail`) checks.
+- **Activity reset flag helper (`tools/activity.py`)**: Added `Activity.set_load_init_tree(flag)` alongside `set_clean_activity(flag)`.
+- **Scoring category metadata & IOS extractors (`pkt_core.models.schema`, `pkt_core.grade`)**: Added `ScoringNode.components` (`<COMPONENTS>`) and additional IOS extractors (`Service Password Encryption`, `AAA/New-model`, `NTP/*`, `SSH Server/SSH Server Version`, `OSPF/*/Router ID`, `OSPF/*/Auto Cost`, `BGP/*`, `VTP/Domain Name`, `STP/RSTP`).
+- **Documentation & tests**: Added `docs/PT901_COMPATIBILITY.md` and `tests/test_pt901_fixes.py`.
+
+### Changed
+
+- **IoT device templates (`tools/device_templates.json`, `src/pkt_core/data/device_templates.json`)**: Refreshed 11 IoT models (`Battery`, `CO Detector`, `Metal Sensor`, `Servo`, `Solar Panel`, `Sound Sensor`, `Street Lamp`, `Trip Wire`, `Water Level Monitor`, `Webcam`, `Wind Turbine`) from PT 9.0.1 `.ptd` files to prevent `"Update Devices?"` prompts on open.
+- **Documentation (`docs/ACTIVITY.md`, `docs/PKA_GENERATION.md`, `SKILL.md`)**: Documented PT 9.0.1 scoring-tree formatting, `checkType` values (`0`/`1`/`2`), `<ENGINE><GATEWAY>`, `Dynamic Mode` enum (`1`/`2`/`3`), `<CLEAN_ACTIVITY>`/`<LOAD_INIT_TREE>`, and `config-after-end`.
+
+### Fixed
+
+- **PT 9.0.1 scoring-tree truncation & scaffold ordering (`tools/scoring.py`)**: Formatted `<INITIALSETUP>` and `<COMPARISONS>` trees with newlines (`ET.indent`) and expanded `<COMPONENTS></COMPONENTS>` / `<POINTS></POINTS>` so PT 9.0.1 does not drop devices after `</NODE><NODE>`, and placed `Remote Networks` / `Encircling Tests` after device nodes (`SCAFFOLD_TAIL`).
+- **Scoring check activation & override scoping (`tools/scoring.py`)**: Enabled `checkType="2"` on graded leaves and propagated `checkType="1"` up ancestor containers to `Network`, scoped interface overrides by path (`Ports/<iface>/...`), guarded device `Power` against overwriting `Ports/*/Power`, stopped `derive_values()` at `end`, prioritized `<ENGINE><GATEWAY>`, and mapped `Dynamic Mode` to `"2"` (trunk) / `"3"` (access).
+- **Grader PT 9.0.1 parity (`pkt_core.grade`)**: Enforced `<ENGINE><GATEWAY>` precedence when `<GATEWAY>` is present, stopped parsing `<RUNNINGCONFIG>` at `end`, emitted switchport `Dynamic Mode` `"1"`/`"2"`/`"3"`, treated `Vlan*` SVIs with an IP and no `shutdown` as up (`Port Up == "1"`), and evaluated explicit `<COMPARISONS>` `checkType > 0` leaves directly while preserving `<COMPONENTS>` categories.
+
 ## [3.0.1] — 2026-11-22
 
 ### Added

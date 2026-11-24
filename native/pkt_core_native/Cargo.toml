@@ -5,7 +5,7 @@
 
 [package]
 name = "pkt-core-native"
-version = "3.0.1"
+version = "3.1.0"
 edition = "2021"
 rust-version = "1.83"
 license = "GPL-3.0-or-later"
